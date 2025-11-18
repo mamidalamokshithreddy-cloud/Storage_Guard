@@ -1,0 +1,214 @@
+'use client';  // Add this at the top to mark as client component
+
+import React, { useEffect, useRef, useState } from 'react';
+import { Button } from '../ui/button';
+import { MapPin, RotateCcw, ZoomIn, ZoomOut } from 'lucide-react';
+import dynamic from 'next/dynamic';
+
+// Dynamic import for fabric.js
+const fabric = dynamic(() => import('fabric'), {
+  ssr: false,  // Disable server-side rendering
+});
+
+interface MapCanvasProps {
+  onCoordinatesSet: (lat: number, lng: number) => void;
+}
+
+export const MapCanvas: React.FC<MapCanvasProps> = ({ onCoordinatesSet }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [fabricCanvas, setFabricCanvas] = useState<FabricCanvas | null>(null);
+  const [currentMarker, setCurrentMarker] = useState<Circle | null>(null);
+  const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(null);
+
+  // Mock map bounds (representing Telangana region)
+  const mapBounds = {
+    minLat: 15.8,
+    maxLat: 19.9,
+    minLng: 77.3,
+    maxLng: 81.8,
+  };
+
+  useEffect(() => {
+    if (!canvasRef.current) return;
+
+    const canvas = new FabricCanvas(canvasRef.current, {
+      width: 800,
+      height: 500,
+      backgroundColor: '#f0f8ff',
+    });
+
+    // Draw mock map grid
+    drawMapGrid(canvas);
+
+    canvas.on('mouse:down', (event) => {
+      if (event.e && event.pointer) {
+        const pointer = event.pointer;
+        addMarker(canvas, pointer.x, pointer.y);
+      }
+    });
+
+    setFabricCanvas(canvas);
+
+    return () => {
+      canvas.dispose();
+    };
+  }, []);
+
+  const drawMapGrid = (canvas: FabricCanvas) => {
+    // Draw a simple grid to represent map
+    const gridSize = 50;
+    
+    // Draw grid lines
+    for (let i = 0; i <= canvas.width!; i += gridSize) {
+      const line = new Line([i, 0, i, canvas.height!], {
+        stroke: '#e0e0e0',
+        strokeWidth: 1,
+        selectable: false,
+        evented: false,
+      });
+      canvas.add(line);
+    }
+    
+    for (let i = 0; i <= canvas.height!; i += gridSize) {
+      const line = new Line([0, i, canvas.width!, i], {
+        stroke: '#e0e0e0',
+        strokeWidth: 1,
+        selectable: false,
+        evented: false,
+      });
+      canvas.add(line);
+    }
+
+    // Add mock geographic features
+    const mockFeatures = [
+      { x: 200, y: 150, label: 'Hyderabad' },
+      { x: 400, y: 200, label: 'Warangal' },
+      { x: 300, y: 350, label: 'Khammam' },
+      { x: 150, y: 300, label: 'Mahbubnagar' },
+    ];
+
+    mockFeatures.forEach(feature => {
+      const circle = new Circle({
+        left: feature.x,
+        top: feature.y,
+        radius: 8,
+        fill: '#3b82f6',
+        selectable: false,
+        evented: false,
+      });
+      
+      const text = new Text(feature.label, {
+        left: feature.x + 15,
+        top: feature.y - 5,
+        fontSize: 12,
+        fill: '#1f2937',
+        selectable: false,
+        evented: false,
+      });
+      
+      canvas.add(circle, text);
+    });
+
+    canvas.renderAll();
+  };
+
+  const addMarker = (canvas: FabricCanvas, x: number, y: number) => {
+    // Remove existing marker
+    if (currentMarker) {
+      canvas.remove(currentMarker);
+    }
+
+    // Create new marker
+    const marker = new Circle({
+      left: x - 10,
+      top: y - 10,
+      radius: 10,
+      fill: '#ef4444',
+      stroke: '#fff',
+      strokeWidth: 2,
+      selectable: false,
+    });
+
+    canvas.add(marker);
+    setCurrentMarker(marker);
+
+    // Convert canvas coordinates to GPS coordinates (mock conversion)
+    const lat = mapBounds.maxLat - ((y / canvas.height!) * (mapBounds.maxLat - mapBounds.minLat));
+    const lng = mapBounds.minLng + ((x / canvas.width!) * (mapBounds.maxLng - mapBounds.minLng));
+
+    setCoordinates({ lat, lng });
+    canvas.renderAll();
+  };
+
+  const handleSetCoordinates = () => {
+    if (coordinates) {
+      onCoordinatesSet(coordinates.lat, coordinates.lng);
+    }
+  };
+
+  const handleClear = () => {
+    if (fabricCanvas && currentMarker) {
+      fabricCanvas.remove(currentMarker);
+      setCurrentMarker(null);
+      setCoordinates(null);
+      fabricCanvas.renderAll();
+    }
+  };
+
+  const handleZoomIn = () => {
+    if (fabricCanvas) {
+      const zoom = fabricCanvas.getZoom() * 1.1;
+      fabricCanvas.setZoom(zoom);
+      fabricCanvas.renderAll();
+    }
+  };
+
+  const handleZoomOut = () => {
+    if (fabricCanvas) {
+      const zoom = fabricCanvas.getZoom() * 0.9;
+      fabricCanvas.setZoom(zoom);
+      fabricCanvas.renderAll();
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h3 className="text-lg font-medium">GPS Land Mapping</h3>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={handleZoomIn}>
+            <ZoomIn className="w-4 h-4" />
+          </Button>
+          <Button size="sm" variant="outline" onClick={handleZoomOut}>
+            <ZoomOut className="w-4 h-4" />
+          </Button>
+          <Button size="sm" variant="outline" onClick={handleClear}>
+            <RotateCcw className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+      
+      <div className="border rounded-lg overflow-hidden bg-white">
+        <canvas ref={canvasRef} className="cursor-crosshair" />
+      </div>
+      
+      <div className="flex justify-between items-center">
+        <div className="text-sm text-gray-600">
+          Click on the map to mark your land location
+          {coordinates && (
+            <div className="mt-1 font-medium text-green-600">
+              Selected: {coordinates.lat.toFixed(6)}, {coordinates.lng.toFixed(6)}
+            </div>
+          )}
+        </div>
+        
+        {coordinates && (
+          <Button onClick={handleSetCoordinates} className="bg-green-600 hover:bg-green-700">
+            <MapPin className="w-4 h-4 mr-2" />
+            Confirm Location
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+};

@@ -1,0 +1,14 @@
+artifact_uri: file:///C:/Users/Mani/OneDrive/Desktop/Storage_G/Backend/runs/mlflow/125836773239282251/3bdb8758b4b8432d8e48c21827a87acd/artifacts
+end_time: 1763361510371
+entry_point_name: ''
+experiment_id: '125836773239282251'
+lifecycle_stage: active
+run_id: 3bdb8758b4b8432d8e48c21827a87acd
+run_name: yolov8n_crops
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1763357170885
+status: 3
+tags: []
+user_id: Mani

@@ -1,0 +1,398 @@
+# Action Thresholds Configuration
+# Defines when to take action based on pest/disease severity and context
+
+version: "1.0.0"
+last_updated: "2024-01-15"
+
+# Base Action Thresholds (0-100 scale)
+base_thresholds:
+  
+  # Fungal Diseases
+  fungal_diseases:
+    powdery_mildew:
+      monitoring_threshold: 5.0
+      action_threshold: 15.0
+      urgent_threshold: 40.0
+      emergency_threshold: 70.0
+    
+    downy_mildew:
+      monitoring_threshold: 3.0
+      action_threshold: 10.0
+      urgent_threshold: 25.0
+      emergency_threshold: 50.0
+    
+    late_blight:
+      monitoring_threshold: 2.0
+      action_threshold: 8.0
+      urgent_threshold: 20.0
+      emergency_threshold: 35.0
+    
+    rust_diseases:
+      monitoring_threshold: 8.0
+      action_threshold: 20.0
+      urgent_threshold: 50.0
+      emergency_threshold: 75.0
+    
+    black_spot:
+      monitoring_threshold: 5.0
+      action_threshold: 12.0
+      urgent_threshold: 30.0
+      emergency_threshold: 60.0
+  
+  # Bacterial Diseases
+  bacterial_diseases:
+    bacterial_spot:
+      monitoring_threshold: 3.0
+      action_threshold: 8.0
+      urgent_threshold: 20.0
+      emergency_threshold: 40.0
+    
+    fire_blight:
+      monitoring_threshold: 1.0
+      action_threshold: 5.0
+      urgent_threshold: 12.0
+      emergency_threshold: 25.0
+    
+    bacterial_wilt:
+      monitoring_threshold: 2.0
+      action_threshold: 6.0
+      urgent_threshold: 15.0
+      emergency_threshold: 30.0
+  
+  # Viral Diseases
+  viral_diseases:
+    mosaic_virus:
+      monitoring_threshold: 2.0
+      action_threshold: 5.0
+      urgent_threshold: 15.0
+      emergency_threshold: 35.0
+    
+    leaf_curl:
+      monitoring_threshold: 4.0
+      action_threshold: 10.0
+      urgent_threshold: 25.0
+      emergency_threshold: 50.0
+  
+  # Insect Pests
+  insect_pests:
+    aphids:
+      monitoring_threshold: 10.0
+      action_threshold: 25.0
+      urgent_threshold: 60.0
+      emergency_threshold: 80.0
+    
+    thrips:
+      monitoring_threshold: 8.0
+      action_threshold: 20.0
+      urgent_threshold: 50.0
+      emergency_threshold: 75.0
+    
+    whitefly:
+      monitoring_threshold: 6.0
+      action_threshold: 15.0
+      urgent_threshold: 40.0
+      emergency_threshold: 70.0
+    
+    spider_mites:
+      monitoring_threshold: 7.0
+      action_threshold: 18.0
+      urgent_threshold: 45.0
+      emergency_threshold: 70.0
+    
+    caterpillars:
+      monitoring_threshold: 5.0
+      action_threshold: 12.0
+      urgent_threshold: 30.0
+      emergency_threshold: 55.0
+    
+    beetles:
+      monitoring_threshold: 6.0
+      action_threshold: 15.0
+      urgent_threshold: 35.0
+      emergency_threshold: 60.0
+  
+  # Nutrient Deficiencies
+  nutrient_deficiencies:
+    nitrogen_deficiency:
+      monitoring_threshold: 8.0
+      action_threshold: 20.0
+      urgent_threshold: 50.0
+      emergency_threshold: 75.0
+    
+    phosphorus_deficiency:
+      monitoring_threshold: 10.0
+      action_threshold: 25.0
+      urgent_threshold: 55.0
+      emergency_threshold: 80.0
+    
+    potassium_deficiency:
+      monitoring_threshold: 9.0
+      action_threshold: 22.0
+      urgent_threshold: 52.0
+      emergency_threshold: 77.0
+    
+    iron_deficiency:
+      monitoring_threshold: 7.0
+      action_threshold: 18.0
+      urgent_threshold: 45.0
+      emergency_threshold: 70.0
+  
+  # Abiotic Stress
+  abiotic_stress:
+    water_stress:
+      monitoring_threshold: 12.0
+      action_threshold: 30.0
+      urgent_threshold: 70.0
+      emergency_threshold: 90.0
+    
+    heat_stress:
+      monitoring_threshold: 10.0
+      action_threshold: 25.0
+      urgent_threshold: 60.0
+      emergency_threshold: 85.0
+    
+    cold_damage:
+      monitoring_threshold: 6.0
+      action_threshold: 15.0
+      urgent_threshold: 40.0
+      emergency_threshold: 70.0
+
+# Crop-Specific Threshold Modifiers
+crop_modifiers:
+  tomato:
+    multiplier: 0.9
+    specific_adjustments:
+      late_blight: 0.7  # More sensitive
+      bacterial_spot: 0.8
+      aphids: 1.0
+      spider_mites: 0.9
+  
+  potato:
+    multiplier: 0.8
+    specific_adjustments:
+      late_blight: 0.6  # Very sensitive
+      bacterial_soft_rot: 0.7
+      colorado_potato_beetle: 0.8
+  
+  corn:
+    multiplier: 1.1
+    specific_adjustments:
+      corn_borer: 0.9
+      gray_leaf_spot: 1.0
+      rust: 1.0
+  
+  wheat:
+    multiplier: 1.0
+    specific_adjustments:
+      stripe_rust: 0.8
+      powdery_mildew: 1.0
+      aphids: 1.1
+  
+  rice:
+    multiplier: 0.9
+    specific_adjustments:
+      blast: 0.7
+      brown_spot: 0.8
+      stem_borer: 0.9
+  
+  soybean:
+    multiplier: 1.0
+    specific_adjustments:
+      soybean_rust: 0.8
+      pod_borer: 0.9
+      aphids: 1.0
+  
+  cotton:
+    multiplier: 0.9
+    specific_adjustments:
+      bollworm: 0.8
+      whitefly: 0.8
+      verticillium_wilt: 0.9
+
+# Growth Stage Modifiers
+growth_stage_modifiers:
+  seedling:
+    multiplier: 0.5  # Very sensitive
+    rationale: "Young plants are most vulnerable"
+  
+  vegetative:
+    multiplier: 0.8  # Moderately sensitive
+    rationale: "Building plant structure, somewhat sensitive"
+  
+  flowering:
+    multiplier: 0.6  # Very sensitive
+    rationale: "Critical reproductive phase"
+  
+  fruiting:
+    multiplier: 0.7  # Sensitive
+    rationale: "Fruit development stage"
+  
+  mature:
+    multiplier: 1.2  # More tolerant
+    rationale: "Established plants more tolerant"
+  
+  unknown:
+    multiplier: 1.0  # No adjustment
+    rationale: "Default when stage unknown"
+
+# Weather Risk Modifiers
+weather_risk_modifiers:
+  low_risk:
+    multiplier: 1.2
+    rationale: "Good weather allows higher tolerance"
+  
+  medium_risk:
+    multiplier: 1.0
+    rationale: "Standard conditions"
+  
+  high_risk:
+    multiplier: 0.7
+    rationale: "Poor weather increases vulnerability"
+
+# Seasonal Adjustments
+seasonal_modifiers:
+  spring:
+    early_spring:
+      multiplier: 0.8
+      reason: "Plants emerging, vulnerable"
+    late_spring:
+      multiplier: 0.9
+      reason: "Active growth period"
+  
+  summer:
+    early_summer:
+      multiplier: 1.0
+      reason: "Peak growing season"
+    late_summer:
+      multiplier: 1.1
+      reason: "Plants more established"
+  
+  fall:
+    early_fall:
+      multiplier: 1.0
+      reason: "Harvest preparation"
+    late_fall:
+      multiplier: 0.9
+      reason: "Preparing for dormancy"
+  
+  winter:
+    multiplier: 1.3
+    reason: "Dormant or protected period"
+
+# Economic Threshold Considerations
+economic_thresholds:
+  high_value_crops:
+    multiplier: 0.8
+    examples: ["strawberries", "grapes", "ornamentals"]
+    rationale: "Lower tolerance due to high value"
+  
+  medium_value_crops:
+    multiplier: 1.0
+    examples: ["tomatoes", "peppers", "leafy_greens"]
+    rationale: "Standard economic thresholds"
+  
+  commodity_crops:
+    multiplier: 1.2
+    examples: ["corn", "wheat", "soybeans"]
+    rationale: "Higher tolerance due to lower margins"
+
+# Threshold Calculation Rules
+calculation_rules:
+  minimum_threshold: 2.0  # Never go below this value
+  maximum_threshold: 80.0  # Never go above this value
+  
+  threshold_relationships:
+    # Ensure logical progression
+    - "monitoring_threshold < action_threshold"
+    - "action_threshold < urgent_threshold" 
+    - "urgent_threshold < emergency_threshold"
+    - "urgent_threshold >= action_threshold + 10.0"
+  
+  confidence_adjustments:
+    high_confidence: 1.0     # Full threshold
+    medium_confidence: 0.9   # Slightly lower threshold
+    low_confidence: 0.8      # Conservative approach
+
+# Special Conditions
+special_conditions:
+  organic_farming:
+    multiplier: 0.9
+    rationale: "Limited treatment options require earlier intervention"
+  
+  protected_cultivation:
+    multiplier: 1.1
+    rationale: "Controlled environment allows higher tolerance"
+  
+  drought_conditions:
+    multiplier: 0.8
+    rationale: "Stressed plants more vulnerable"
+  
+  flood_conditions:
+    multiplier: 0.7
+    rationale: "Waterlogged conditions increase disease risk"
+  
+  pollinator_activity:
+    multiplier: 0.9
+    rationale: "Restrict some treatments during pollination"
+
+# Integration Multipliers
+integration_factors:
+  multiple_pests:
+    two_issues: 0.9
+    three_plus_issues: 0.8
+    rationale: "Multiple stressors compound effects"
+  
+  beneficial_presence:
+    high_beneficial_activity: 1.2
+    rationale: "Natural enemies provide additional control"
+  
+  resistant_varieties:
+    partial_resistance: 1.15
+    full_resistance: 1.5
+    rationale: "Genetic resistance increases tolerance"
+
+# Threshold Override Conditions
+override_conditions:
+  force_action:
+    - "quarantine_pest_detected"
+    - "regulatory_requirement"
+    - "export_quality_standards"
+  
+  delay_action:
+    - "beneficial_insect_release_pending"
+    - "weather_unsuitable_for_treatment"
+    - "pre_harvest_interval_concerns"
+
+# Monitoring Frequencies
+monitoring_schedules:
+  below_monitoring_threshold:
+    frequency: "weekly"
+    intensity: "routine"
+  
+  above_monitoring_threshold:
+    frequency: "every_3_days"
+    intensity: "focused"
+  
+  above_action_threshold:
+    frequency: "daily"
+    intensity: "intensive"
+  
+  above_urgent_threshold:
+    frequency: "twice_daily"
+    intensity: "critical"
+
+# Documentation Requirements
+documentation_triggers:
+  threshold_exceeded:
+    required_info:
+      - "exact_severity_score"
+      - "affected_area_percentage"
+      - "environmental_conditions"
+      - "previous_treatments"
+  
+  treatment_decisions:
+    required_info:
+      - "threshold_comparison"
+      - "modifier_calculations"
+      - "treatment_rationale"
+      - "expected_outcomes"

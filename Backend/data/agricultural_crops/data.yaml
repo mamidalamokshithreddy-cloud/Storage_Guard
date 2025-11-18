@@ -1,0 +1,12 @@
+names:
+- dc
+nc: 1
+roboflow:
+  license: CC BY 4.0
+  project: cotton-plant-disease
+  url: https://universe.roboflow.com/roboflow-100/cotton-plant-disease/dataset/2
+  version: 2
+  workspace: roboflow-100
+test: ../test/images
+train: ../train/images
+val: ../valid/images

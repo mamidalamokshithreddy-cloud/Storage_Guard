@@ -1,0 +1,22 @@
+// All imports remain the same...
+
+const NutriDose = () => {
+  const router = useRouter();
+  // All state management and other code remains the same...
+
+  return (
+    <div className="min-h-screen field-gradient">
+      <AgriChatAgent />
+      <AgriAIPilotSidePeek
+        agentType="NutriDose" 
+        agentName="NutriDose"
+        agentNameTelugu="పోషకాహార మోతాదు"
+        services={nutriDoseServices}
+      />
+      
+      {/* Rest of your JSX */}
+    </div>
+  );
+};
+
+export default NutriDose;

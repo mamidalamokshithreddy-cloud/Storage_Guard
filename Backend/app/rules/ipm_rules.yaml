@@ -1,0 +1,399 @@
+# IPM Rules Configuration
+# Integrated Pest Management recommendations for various crops and pests/diseases
+
+version: "1.0.0"
+last_updated: "2024-01-15"
+
+# Pest and Disease Treatment Rules
+pest_disease_rules:
+  
+  # Fungal Diseases
+  powdery_mildew:
+    description: "White powdery coating on leaves and stems"
+    severity_bands:
+      low: 0-15
+      medium: 15-40
+      high: 40-100
+    treatments:
+      cultural:
+        - action: "Improve air circulation"
+          timing: "immediate"
+          frequency: "ongoing"
+          effectiveness: 70
+        - action: "Remove infected plant parts"
+          timing: "immediate"
+          frequency: "as_needed"
+          effectiveness: 60
+        - action: "Avoid overhead watering"
+          timing: "immediate"
+          frequency: "ongoing"
+          effectiveness: 50
+      biological:
+        - action: "Apply Bacillus subtilis"
+          timing: "within_24h"
+          frequency: "weekly_3x"
+          effectiveness: 80
+        - action: "Use beneficial microorganisms"
+          timing: "within_48h"
+          frequency: "bi_weekly"
+          effectiveness: 75
+      chemical:
+        - action: "Apply sulfur-based fungicide"
+          timing: "if_biological_insufficient"
+          frequency: "7-10_days"
+          effectiveness: 90
+          restrictions: ["avoid_during_flowering", "temperature_below_30C"]
+    crop_specific:
+      tomato:
+        threshold_adjustment: 0.8
+        preferred_treatments: ["biological", "cultural"]
+      grape:
+        threshold_adjustment: 0.7
+        preferred_treatments: ["sulfur", "cultural"]
+
+  downy_mildew:
+    description: "Yellow spots on upper leaf surface, white growth underneath"
+    severity_bands:
+      low: 0-10
+      medium: 10-25
+      high: 25-100
+    treatments:
+      cultural:
+        - action: "Ensure proper plant spacing"
+          timing: "immediate"
+          frequency: "ongoing"
+          effectiveness: 65
+        - action: "Improve drainage"
+          timing: "immediate"
+          frequency: "ongoing"
+          effectiveness: 70
+      biological:
+        - action: "Apply copper-based organic fungicide"
+          timing: "within_24h"
+          frequency: "weekly"
+          effectiveness: 75
+      chemical:
+        - action: "Apply systemic fungicide"
+          timing: "within_12h"
+          frequency: "10-14_days"
+          effectiveness: 95
+          restrictions: ["not_near_harvest"]
+
+  late_blight:
+    description: "Dark brown lesions with white fungal growth"
+    severity_bands:
+      low: 0-8
+      medium: 8-20
+      high: 20-100
+    treatments:
+      cultural:
+        - action: "Remove and destroy infected plants"
+          timing: "immediate"
+          frequency: "as_discovered"
+          effectiveness: 80
+        - action: "Avoid overhead irrigation"
+          timing: "immediate"
+          frequency: "ongoing"
+          effectiveness: 60
+      chemical:
+        - action: "Apply copper-based fungicide"
+          timing: "immediate"
+          frequency: "7-14_days"
+          effectiveness: 85
+        - action: "Apply systemic fungicide"
+          timing: "severe_cases"
+          frequency: "10-14_days"
+          effectiveness: 95
+
+  # Insect Pests
+  aphids:
+    description: "Small soft-bodied insects clustering on stems and leaves"
+    severity_bands:
+      low: 0-25
+      medium: 25-60
+      high: 60-100
+    treatments:
+      physical:
+        - action: "Spray with water"
+          timing: "immediate"
+          frequency: "daily_3x"
+          effectiveness: 50
+        - action: "Use reflective mulch"
+          timing: "next_planting"
+          frequency: "seasonal"
+          effectiveness: 60
+      biological:
+        - action: "Release ladybugs"
+          timing: "within_48h"
+          frequency: "as_needed"
+          effectiveness: 80
+        - action: "Release lacewings"
+          timing: "within_48h"
+          frequency: "as_needed"
+          effectiveness: 75
+        - action: "Plant companion plants (nasturtiums)"
+          timing: "next_season"
+          frequency: "seasonal"
+          effectiveness: 65
+      chemical:
+        - action: "Apply insecticidal soap"
+          timing: "if_infestation_continues"
+          frequency: "3-5_days"
+          effectiveness: 70
+        - action: "Apply neem oil"
+          timing: "if_infestation_continues"
+          frequency: "weekly"
+          effectiveness: 75
+
+  spider_mites:
+    description: "Tiny spiders causing stippling and webbing on leaves"
+    severity_bands:
+      low: 0-18
+      medium: 18-45
+      high: 45-100
+    treatments:
+      physical:
+        - action: "Increase humidity"
+          timing: "immediate"
+          frequency: "ongoing"
+          effectiveness: 70
+        - action: "Spray with water"
+          timing: "daily"
+          frequency: "morning"
+          effectiveness: 60
+      biological:
+        - action: "Release predatory mites"
+          timing: "within_48h"
+          frequency: "as_needed"
+          effectiveness: 90
+      chemical:
+        - action: "Apply miticide"
+          timing: "severe_cases"
+          frequency: "5-7_days"
+          effectiveness: 85
+          restrictions: ["rotate_active_ingredients"]
+
+  thrips:
+    description: "Small slender insects causing silvery streaks on leaves"
+    severity_bands:
+      low: 0-20
+      medium: 20-50
+      high: 50-100
+    treatments:
+      physical:
+        - action: "Use blue sticky traps"
+          timing: "immediate"
+          frequency: "ongoing"
+          effectiveness: 65
+      biological:
+        - action: "Release predatory mites"
+          timing: "within_48h"
+          frequency: "as_needed"
+          effectiveness: 80
+      chemical:
+        - action: "Apply systemic insecticide"
+          timing: "high_infestation"
+          frequency: "14_days"
+          effectiveness: 90
+
+  # Nutrient Deficiencies
+  nitrogen_deficiency:
+    description: "Yellowing of older leaves, stunted growth"
+    severity_bands:
+      low: 0-20
+      medium: 20-50
+      high: 50-100
+    treatments:
+      nutritional:
+        - action: "Apply nitrogen fertilizer"
+          timing: "within_48h"
+          frequency: "once_then_monitor"
+          effectiveness: 95
+        - action: "Side-dress with compost"
+          timing: "within_week"
+          frequency: "monthly"
+          effectiveness: 80
+      soil_management:
+        - action: "Test and adjust soil pH"
+          timing: "within_week"
+          frequency: "once"
+          effectiveness: 70
+
+  phosphorus_deficiency:
+    description: "Purple or reddish leaf discoloration, poor root development"
+    severity_bands:
+      low: 0-25
+      medium: 25-55
+      high: 55-100
+    treatments:
+      nutritional:
+        - action: "Apply phosphorus fertilizer"
+          timing: "within_48h"
+          frequency: "once_then_monitor"
+          effectiveness: 90
+        - action: "Apply bone meal"
+          timing: "within_week"
+          frequency: "seasonal"
+          effectiveness: 85
+      soil_management:
+        - action: "Check soil pH (phosphorus availability)"
+          timing: "within_week"
+          frequency: "once"
+          effectiveness: 75
+
+  potassium_deficiency:
+    description: "Brown leaf edges, poor fruit quality"
+    severity_bands:
+      low: 0-22
+      medium: 22-52
+      high: 52-100
+    treatments:
+      nutritional:
+        - action: "Apply potassium fertilizer"
+          timing: "within_48h"
+          frequency: "once_then_monitor"
+          effectiveness: 95
+        - action: "Apply wood ash (if soil not alkaline)"
+          timing: "within_week"
+          frequency: "monthly"
+          effectiveness: 80
+
+# Crop-Specific Modifications
+crop_modifiers:
+  tomato:
+    sensitivity_multiplier: 0.9
+    preferred_approaches: ["biological", "cultural", "integrated"]
+    restrictions:
+      - "avoid_copper_near_harvest"
+      - "pollinator_safe_during_flowering"
+    special_considerations:
+      - "Monitor for bacterial diseases in humid conditions"
+      - "Support with stakes/cages for air circulation"
+  
+  potato:
+    sensitivity_multiplier: 0.8
+    preferred_approaches: ["cultural", "chemical_when_needed"]
+    restrictions:
+      - "avoid_overhead_irrigation"
+    special_considerations:
+      - "Late blight is major concern in humid weather"
+      - "Harvest timing critical for storage quality"
+  
+  corn:
+    sensitivity_multiplier: 1.1
+    preferred_approaches: ["cultural", "biological"]
+    special_considerations:
+      - "Monitor for corn borer during tasseling"
+      - "Adequate spacing for air circulation"
+  
+  wheat:
+    sensitivity_multiplier: 1.0
+    preferred_approaches: ["cultural", "chemical_when_needed"]
+    special_considerations:
+      - "Rust diseases major concern"
+      - "Fungicide timing critical around flowering"
+
+# Growth Stage Adjustments
+growth_stage_modifiers:
+  seedling:
+    sensitivity_multiplier: 0.5
+    restrictions:
+      - "avoid_strong_chemicals"
+      - "gentle_treatment_methods"
+    monitoring_frequency: "daily"
+  
+  vegetative:
+    sensitivity_multiplier: 0.8
+    monitoring_frequency: "every_3_days"
+  
+  flowering:
+    sensitivity_multiplier: 0.6
+    restrictions:
+      - "pollinator_safe_only"
+      - "avoid_plant_disturbance"
+    monitoring_frequency: "daily"
+  
+  fruiting:
+    sensitivity_multiplier: 0.7
+    restrictions:
+      - "check_pre_harvest_intervals"
+    monitoring_frequency: "every_2_days"
+  
+  mature:
+    sensitivity_multiplier: 1.2
+    monitoring_frequency: "weekly"
+
+# Environmental Condition Adjustments
+weather_adjustments:
+  high_humidity:
+    fungal_risk_multiplier: 1.5
+    preferred_treatments: ["cultural_air_circulation", "preventive_fungicides"]
+  
+  wet_conditions:
+    bacterial_risk_multiplier: 1.3
+    fungal_risk_multiplier: 1.4
+    restrictions:
+      - "avoid_overhead_watering"
+      - "improve_drainage"
+  
+  drought_stress:
+    pest_susceptibility_multiplier: 1.2
+    recommendations:
+      - "maintain_adequate_moisture"
+      - "mulch_to_conserve_water"
+  
+  temperature_extremes:
+    stress_multiplier: 1.3
+    recommendations:
+      - "provide_shade_if_hot"
+      - "protect_from_cold"
+
+# Treatment Compatibility Matrix
+treatment_compatibility:
+  biological_chemical:
+    compatible:
+      - "beneficial_microorganisms + copper"
+      - "predatory_insects + selective_insecticides"
+    incompatible:
+      - "beneficial_bacteria + broad_spectrum_antibiotics"
+      - "predatory_insects + broad_spectrum_insecticides"
+  
+  timing_conflicts:
+    avoid_combinations:
+      - "foliar_feeding + pesticide_application"
+      - "watering + fungicide_application"
+
+# Success Metrics
+treatment_success_indicators:
+  immediate: # 1-3 days
+    - "no_new_lesions"
+    - "reduced_pest_activity"
+    - "improved_plant_vigor"
+  
+  short_term: # 1-2 weeks
+    - "lesion_healing"
+    - "pest_population_decline"
+    - "new_healthy_growth"
+  
+  long_term: # 1 month+
+    - "sustained_health"
+    - "normal_productivity"
+    - "resistance_to_reinfection"
+
+# Emergency Protocols
+emergency_thresholds:
+  immediate_action_required:
+    - severity_score: "> 80"
+    - spread_rate: "> 20% per day"
+    - economic_threshold: "yield_loss > 15%"
+  
+  quarantine_protocols:
+    viral_diseases:
+      - "immediate_isolation"
+      - "vector_control"
+      - "sanitation_protocols"
+    
+    bacterial_diseases:
+      - "remove_infected_material"
+      - "disinfect_tools"
+      - "avoid_water_spread"

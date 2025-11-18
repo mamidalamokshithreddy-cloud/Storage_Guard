@@ -1,0 +1,14 @@
+artifact_uri: file:///C:/Users/Mani/OneDrive/Desktop/Storage_G/Backend/runs/mlflow/125836773239282251/403aa27dc2fc47039728547eed1eab2b/artifacts
+end_time: 1763361964530
+entry_point_name: ''
+experiment_id: '125836773239282251'
+lifecycle_stage: active
+run_id: 403aa27dc2fc47039728547eed1eab2b
+run_name: cotton_model
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1763361739854
+status: 3
+tags: []
+user_id: Mani

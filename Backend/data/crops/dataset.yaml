@@ -1,0 +1,11 @@
+# Crop Detection Dataset
+path: C:\Users\Mani\OneDrive\Desktop\Storage_G\Backend\data\crops
+train: images/train
+val: images/val
+test: images/test
+
+# Number of classes
+nc: 55
+
+# Class names
+names: ['rice', 'wheat', 'maize', 'corn', 'bajra', 'jowar', 'ragi', 'chickpea', 'pigeon_pea', 'moong', 'urad', 'masoor', 'kidney_bean', 'tomato', 'potato', 'onion', 'cabbage', 'cauliflower', 'brinjal', 'lady_finger', 'bitter_gourd', 'bottle_gourd', 'pumpkin', 'cucumber', 'carrot', 'radish', 'beetroot', 'spinach', 'coriander', 'mango', 'banana', 'apple', 'grapes', 'pomegranate', 'guava', 'papaya', 'watermelon', 'orange', 'lemon', 'coconut', 'cotton', 'sugarcane', 'tobacco', 'jute', 'tea', 'coffee', 'groundnut', 'mustard', 'sunflower', 'soybean', 'sesame', 'chili', 'turmeric', 'ginger', 'garlic']
