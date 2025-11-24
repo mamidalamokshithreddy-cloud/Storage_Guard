@@ -22,6 +22,7 @@ from app.routers.soil_sense import soil_sense_router
 from app.routers.admin_routes import admin_router
 from app.routers.auth import authentication_router
 from app.routers.storage_guard import storage_guard_router
+from app.routers.market_integration import market_router
 
     
 logger = logging.getLogger(__name__)
@@ -198,7 +199,6 @@ app.add_middleware(
 app.add_middleware( 
     CORSMiddleware,
     allow_origins=[
-        "*",  # Allow all origins for development (including mobile devices on local network)
         # Production origins
         "https://beta.agrihublife.ai",
         "https://api.agrihublife.ai",
@@ -207,10 +207,7 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://localhost:8000", 
         "http://127.0.0.1:8000",
-        # Mobile access patterns (common local IP ranges)
-        "http://192.168.*:3000",
-        "http://10.*:3000",
-        "http://172.*:3000",
+        # Mobile access patterns (common local IP ranges) - if needed, add specific IPs
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
@@ -250,3 +247,4 @@ app.include_router(soil_sense_router, tags=["Soil Testing & Health Card"])
 app.include_router(admin_router, tags=["Admin"])
 app.include_router(authentication_router, tags=["Auth"])
 app.include_router(storage_guard_router, prefix="/storage-guard", tags=["Storage Guard"])
+app.include_router(market_router, tags=["Market Integration"])

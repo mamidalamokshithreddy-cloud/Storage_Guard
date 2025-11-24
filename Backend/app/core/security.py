@@ -1,44 +1,36 @@
 from passlib.context import CryptContext
 import bcrypt
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Try to initialize passlib context, fallback to direct bcrypt if needed
 try:
     pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
     USE_PASSLIB = True
 except Exception as e:
-    print(f"Warning: Passlib initialization failed: {e}. Using direct bcrypt.")
+    logger.warning(f"Passlib initialization failed: {e}. Using direct bcrypt.")
     USE_PASSLIB = False
 
 def get_password_hash(password: str) -> str:
     """Generate password hash with bcrypt 72-byte limit handling"""
-    # Ensure password is within bcrypt's 72-byte limit
+    # Truncate password to bcrypt's 72-byte limit BEFORE hashing
     password_bytes = password.encode('utf-8')
     if len(password_bytes) > 72:
-        # Safely truncate password to fit bcrypt limit while preserving UTF-8 character boundaries
-        truncated_bytes = password_bytes[:72]
-        # Use a more robust decoder that handles incomplete characters at the end
+        # Safely truncate to 72 bytes while preserving UTF-8 character boundaries
         try:
-            password = truncated_bytes.decode('utf-8')
+            password = password_bytes[:72].decode('utf-8')
         except UnicodeDecodeError:
             # If truncation broke a character, find the last complete character
-            for i in range(72, 0, -1):
+            for i in range(71, 0, -1):
                 try:
                     password = password_bytes[:i].decode('utf-8')
                     break
                 except UnicodeDecodeError:
                     continue
-            else:
-                # Fallback: use first 50 characters of original string (safe for most cases)
-                password = password[:50]
-        print(f"Password truncated from {len(password_bytes)} to {len(password.encode('utf-8'))} bytes for bcrypt compatibility")
+        logger.debug(f"Password truncated from {len(password_bytes)} to {len(password.encode('utf-8'))} bytes for bcrypt")
     
-    if USE_PASSLIB:
-        try:
-            return pwd_context.hash(password)
-        except Exception as e:
-            print(f"Passlib hashing failed: {e}. Falling back to direct bcrypt.")
-    
-    # Fallback to direct bcrypt
+    # Use direct bcrypt to avoid passlib warnings
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -51,24 +43,17 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
             plain_password = password_bytes[:72].decode('utf-8')
         except UnicodeDecodeError:
             # If truncation broke a character, find the last complete character
-            for i in range(72, 0, -1):
+            for i in range(71, 0, -1):
                 try:
                     plain_password = password_bytes[:i].decode('utf-8')
                     break
                 except UnicodeDecodeError:
                     continue
-            else:
-                # Fallback: use first 50 characters of original string (safe for most cases)
-                plain_password = plain_password[:50]
+        logger.debug(f"Password truncated for verification")
     
-    if USE_PASSLIB:
-        try:
-            return pwd_context.verify(plain_password, hashed_password)
-        except Exception as e:
-            print(f"Passlib verification failed: {e}. Falling back to direct bcrypt.")
-    
-    # Fallback to direct bcrypt
+    # Use direct bcrypt to avoid passlib warnings
     try:
         return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
-    except Exception:
+    except Exception as e:
+        logger.error(f"Password verification failed: {e}")
         return False

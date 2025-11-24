@@ -292,10 +292,20 @@ class CertificateService:
         if existing:
             return existing
         
-        # Get AI inspection data if available
+        # ✅ REQUIRE AI inspection data for certificate
+        if not booking.ai_inspection_id:
+            raise ValueError(
+                "Certificate generation requires AI quality inspection. "
+                "This booking was created without AI analysis. "
+                "Please use 'Analyze & Book' option for certificate eligibility."
+            )
+        
         inspection = self.db.query(models.CropInspection).filter(
             models.CropInspection.id == booking.ai_inspection_id
-        ).first() if booking.ai_inspection_id else None
+        ).first()
+        
+        if not inspection:
+            raise ValueError("AI inspection data not found for this booking")
         
         # Calculate quality metrics
         temp_metrics = self.calculate_temperature_compliance(booking_id)
@@ -308,7 +318,7 @@ class CertificateService:
         vendor_certs = self.get_vendor_certifications(str(booking.vendor_id)) if booking.vendor_id else {}
         
         # Determine grade maintenance
-        initial_grade = inspection.grade if inspection else "A"
+        initial_grade = inspection.grade
         final_grade = initial_grade  # For now, assume grade maintained (can be updated later)
         grade_maintained = (initial_grade == final_grade)
         

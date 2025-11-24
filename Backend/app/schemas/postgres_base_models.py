@@ -1406,6 +1406,10 @@ class QualityReport(BaseModel):
     defects: List[Defect] = Field(..., description="List of detected defects")
     crop_detected: Optional[str] = Field(None, description="Detected crop type from AI model", example="Tomato")
     crop_confidence: Optional[float] = Field(None, description="Confidence score for crop detection", example=0.95)
+    freshness: Optional[str] = Field("N/A", description="Freshness assessment", example="Excellent - Very Fresh")
+    freshness_score: Optional[float] = Field(0.0, description="Freshness score (0-1)", example=0.92)
+    visual_defects: Optional[str] = Field("None", description="Visual defect summary", example="Minor Spots: Low severity")
+    optimal_storage_days: Optional[int] = Field(None, description="AI-recommended optimal storage duration", example=90)
 
 class FullAnalysisResponse(BaseModel):
     vision_analysis: QualityReport
@@ -1741,6 +1745,108 @@ class TransportBookingOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ============================================================================
+# SCHEDULED INSPECTION SCHEMAS
+# ============================================================================
+
+class InspectionType(str, Enum):
+    """Types of scheduled inspections"""
+    pre_storage = "pre_storage"
+    during_storage = "during_storage"
+    final = "final"
+    dispute = "dispute"
+
+
+class TimeSlot(str, Enum):
+    """Preferred time slots for inspection"""
+    morning = "morning"  # 8 AM - 12 PM
+    afternoon = "afternoon"  # 12 PM - 4 PM
+    evening = "evening"  # 4 PM - 7 PM
+
+
+class InspectionStatus(str, Enum):
+    """Inspection scheduling status"""
+    pending = "pending"
+    confirmed = "confirmed"
+    in_progress = "in_progress"
+    completed = "completed"
+    cancelled = "cancelled"
+
+
+class InspectionScheduleCreate(BaseModel):
+    """Request to schedule an on-site inspection"""
+    booking_id: Optional[UUID] = Field(None, description="Link to existing booking (optional)")
+    inspection_type: InspectionType
+    crop_type: str = Field(..., min_length=2, max_length=120)
+    quantity_kg: int = Field(..., gt=0)
+    location_address: str = Field(..., min_length=10)
+    location_lat: Optional[float] = Field(None, ge=-90, le=90)
+    location_lon: Optional[float] = Field(None, ge=-180, le=180)
+    requested_date: datetime = Field(..., description="Preferred inspection date")
+    preferred_time_slot: Optional[TimeSlot] = None
+    farmer_notes: Optional[str] = Field(None, max_length=1000)
+
+
+class InspectionScheduleOut(BaseModel):
+    """Scheduled inspection response"""
+    id: UUID
+    farmer_id: UUID
+    booking_id: Optional[UUID]
+    vendor_id: Optional[UUID]
+    inspection_type: str
+    crop_type: str
+    quantity_kg: int
+    location_address: str
+    location_lat: Optional[float]
+    location_lon: Optional[float]
+    requested_date: datetime
+    preferred_time_slot: Optional[str]
+    scheduled_date: Optional[datetime]
+    completed_date: Optional[datetime]
+    status: str
+    farmer_notes: Optional[str]
+    inspector_notes: Optional[str]
+    cancellation_reason: Optional[str]
+    inspection_result_id: Optional[UUID]
+    created_at: datetime
+    updated_at: datetime
+    confirmed_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+class InspectionConfirm(BaseModel):
+    """Vendor confirms inspection schedule"""
+    scheduled_date: datetime
+    inspector_notes: Optional[str] = None
+
+
+class InspectionComplete(BaseModel):
+    """Complete inspection with results"""
+    inspector_notes: str = Field(..., min_length=10)
+    crop_detected: str
+    grade: str = Field(..., pattern="^[ABC]$")
+    defects: List[str] = []
+    freshness: str
+    shelf_life_days: int = Field(..., gt=0)
+    recommendation: Optional[str] = None
+
+
+class InspectionCancel(BaseModel):
+    """Cancel scheduled inspection"""
+    cancellation_reason: str = Field(..., min_length=10, max_length=500)
+
+
+class InspectionList(BaseModel):
+    """List of scheduled inspections"""
+    inspections: List[InspectionScheduleOut]
+    total: int
+    pending: int
+    confirmed: int
+    completed: int
 
 
 # Payment Schemas

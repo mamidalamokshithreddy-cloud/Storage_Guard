@@ -40,14 +40,29 @@ def get_storage_suggestions(
     farmer_lon: float,
     crop_type: Optional[str] = None,
     quantity_kg: Optional[float] = None,
+    storage_type: Optional[str] = None,
     max_distance_km: float = 50.0,
     limit: int = 5
 ) -> List[schemas.StorageSuggestion]:
     """
     Get nearby storage locations with distance and pricing
+    Filter by storage_type if provided (COLD/DRY)
     """
     # Get all storage locations
-    locations = db.query(models.StorageLocation).all()
+    query = db.query(models.StorageLocation)
+    
+    # Filter by storage type if specified
+    if storage_type:
+        storage_type_lower = storage_type.lower()
+        if storage_type_lower == "cold":
+            query = query.filter(models.StorageLocation.type.in_(['cold_storage', 'cold']))
+            print(f"🔍 Filtering for COLD storage locations only")
+        elif storage_type_lower == "dry":
+            query = query.filter(models.StorageLocation.type.in_(['dry_storage', 'warehouse', 'dry']))
+            print(f"🔍 Filtering for DRY storage locations only")
+    
+    locations = query.all()
+    print(f"📍 Found {len(locations)} storage location(s) within {max_distance_km}km (filtered by {storage_type or 'ANY'} type)")
     
     suggestions = []
     for location in locations:
@@ -119,21 +134,115 @@ def create_storage_booking(
             detail="Storage location not found"
         )
     
-    # Parse price from location
-    price_per_unit = 500.0
+    # Parse price from location and calculate total
+    # Standard format: ₹X/quintal/month (where 1 quintal = 100 kg)
+    # Default realistic rates based on storage type
+    
+    # Determine realistic default based on storage type
+    storage_type = (location.type or "").upper()
+    if "COLD" in storage_type:
+        default_price = 400.0  # ₹400/quintal/month for cold storage
+    elif "DRY" in storage_type or "WAREHOUSE" in storage_type:
+        default_price = 300.0  # ₹300/quintal/month for dry storage
+    else:
+        default_price = 350.0  # ₹350/quintal/month for others
+    
+    price_per_quintal_per_month = default_price
+    
     try:
         import re
-        price_match = re.search(r'₹?(\d+)', location.price_text or "")
+        price_text_lower = (location.price_text or "").lower()
+        price_match = re.search(r'₹?(\d+(?:\.\d+)?)', location.price_text or "")
+        
         if price_match:
-            price_per_unit = float(price_match.group(1))
-    except:
-        pass
+            price_value = float(price_match.group(1))
+            
+            # Only use parsed price if it's reasonable (₹100-₹15000 per quintal per month)
+            # This prevents absurd prices while allowing realistic conversions
+            if '/kg/day' in price_text_lower:
+                # ₹X/kg/day - Convert to per quintal per month
+                # ₹2.5/kg/day = ₹250/quintal/day = ₹7,500/quintal/month
+                # ₹5/kg/day = ₹500/quintal/day = ₹15,000/quintal/month
+                # Realistic range: ₹100-₹15,000/quintal/month
+                calculated = price_value * 100 * 30
+                if 100 <= calculated <= 15000:
+                    price_per_quintal_per_month = calculated
+                    print(f"✅ Converted ₹{price_value}/kg/day → ₹{calculated}/quintal/month")
+                else:
+                    print(f"⚠️ Unrealistic price {calculated}, using default {default_price}")
+                    price_per_quintal_per_month = default_price
+                    
+            elif '/quintal/month' in price_text_lower or '/quintal' in price_text_lower:
+                # Direct format: ₹X/quintal/month
+                if 100 <= price_value <= 1000:
+                    price_per_quintal_per_month = price_value
+                else:
+                    print(f"⚠️ Unrealistic price {price_value}, using default {default_price}")
+                    price_per_quintal_per_month = default_price
+                    
+            elif '/month' in price_text_lower:
+                # Assume per quintal if reasonable
+                if 100 <= price_value <= 1000:
+                    price_per_quintal_per_month = price_value
+                else:
+                    print(f"⚠️ Unrealistic price {price_value}, using default {default_price}")
+                    price_per_quintal_per_month = default_price
+            else:
+                # No format specified - validate range
+                if 100 <= price_value <= 1000:
+                    price_per_quintal_per_month = price_value
+                else:
+                    print(f"⚠️ Unrealistic price {price_value}, using default {default_price}")
+                    price_per_quintal_per_month = default_price
+                    
+    except Exception as e:
+        print(f"⚠️ Price parsing error: {e}, using default ₹{default_price}/quintal/month")
     
-    # Calculate total amount
-    total_amount = (booking_data.quantity_kg / 100) * price_per_unit
+    # Calculate total: (quintals) × (price per quintal per month) × (months)
+    quintals = booking_data.quantity_kg / 100.0
+    months = booking_data.duration_days / 30.0
+    total_amount = quintals * price_per_quintal_per_month * months
+    
+    # Log calculation for debugging
+    print(f"\n💰 PRICE CALCULATION:")
+    print(f"   Location: {location.name}")
+    print(f"   Type: {storage_type}")
+    print(f"   Price text: '{location.price_text}'")
+    print(f"   Using: ₹{price_per_quintal_per_month}/quintal/month")
+    print(f"   Quantity: {booking_data.quantity_kg} kg = {quintals} quintals")
+    print(f"   Duration: {booking_data.duration_days} days = {months:.2f} months")
+    print(f"   TOTAL: {quintals} × ₹{price_per_quintal_per_month} × {months:.2f} = ₹{total_amount:.2f}\n")
+    
+    # Calculate price per day for the entire quantity
+    price_per_day = (quintals * price_per_quintal_per_month) / 30.0
     
     # Calculate end date
     end_date = booking_data.start_date + timedelta(days=booking_data.duration_days)
+    
+    # 🚚 SMART TRANSPORT LOGIC: Auto-determine if transport is needed
+    # If not explicitly set, default based on crop type and quantity
+    transport_required = booking_data.transport_required
+    
+    if transport_required is None:
+        # Auto-enable transport for:
+        # 1. Perishable crops (need quick delivery)
+        # 2. Large quantities (>1000kg)
+        # 3. Long distances (if we had farmer location, we'd calculate)
+        crop_lower = booking_data.crop_type.lower()
+        perishables = ['tomato', 'potato', 'onion', 'cauliflower', 'cabbage', 'carrot',
+                      'brinjal', 'capsicum', 'cucumber', 'vegetable', 'fruit', 'leafy']
+        
+        is_perishable = any(p in crop_lower for p in perishables)
+        is_large_quantity = booking_data.quantity_kg >= 1000
+        
+        # Default: Enable transport for perishables OR large quantities
+        transport_required = is_perishable or is_large_quantity
+        
+        print(f"🚚 Auto-Transport Logic:")
+        print(f"   Crop: {booking_data.crop_type}")
+        print(f"   Perishable: {is_perishable}")
+        print(f"   Large Qty (≥1000kg): {is_large_quantity}")
+        print(f"   → Transport Required: {transport_required}")
     
     # Create booking
     new_booking = models.StorageBooking(
@@ -147,11 +256,11 @@ def create_storage_booking(
         duration_days=booking_data.duration_days,
         start_date=booking_data.start_date,
         end_date=end_date,
-        price_per_day=price_per_unit,
+        price_per_day=price_per_day,
         total_price=total_amount,
         booking_status="PENDING",
         payment_status="PENDING",
-        transport_required=booking_data.transport_required
+        transport_required=transport_required
     )
     
     db.add(new_booking)
@@ -253,14 +362,14 @@ def vendor_confirm_booking(
     if booking.status != "PENDING":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Booking cannot be modified. Current status: {booking.status}"
+            detail=f"Booking cannot be modified. Current status: {booking.booking_status}"
         )
     
     if confirmed:
-        booking.status = "CONFIRMED"
+        booking.booking_status = "confirmed"
         booking.confirmed_at = datetime.now(timezone.utc)
     else:
-        booking.status = "REJECTED"
+        booking.booking_status = "rejected"
         booking.rejection_reason = rejection_reason
     
     db.commit()

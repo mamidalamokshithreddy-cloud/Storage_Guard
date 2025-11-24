@@ -203,7 +203,10 @@ const AgriChatAgent = () => {
       utterance.onstart = () => setIsSpeaking(true);
       utterance.onend = () => setIsSpeaking(false);
       utterance.onerror = (event) => {
-        console.error('Speech synthesis error:', event);
+        // Silently handle speech synthesis errors (browser compatibility issues)
+        if (event.error !== 'canceled') {
+          console.warn('Speech synthesis not available:', event.error);
+        }
         setIsSpeaking(false);
       };
 

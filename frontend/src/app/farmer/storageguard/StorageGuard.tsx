@@ -19,6 +19,7 @@ import AgriChatAgent from "../AgriChatAgent";
 import AgriAIPilotSidePeek from "../AgriAIPilotSidePeek";
 import AgentVideoSection from "../AgentVideoSection";
 import StorageLocationMap from "../storageguard/StorageLocationMap";
+import MarketIntegrationTab from "./MarketIntegrationTab";
 
 const StorageGuard = () => {
   const { toast } = useToast();
@@ -45,6 +46,23 @@ const StorageGuard = () => {
   const [selectedStorage, setSelectedStorage] = useState<any>(null);
   const [myBookings, setMyBookings] = useState<any[]>([]);
   const [farmerDashboard, setFarmerDashboard] = useState<any>(null);
+  const [currentInspectionId, setCurrentInspectionId] = useState<string | null>(null); // ✅ Track AI inspection ID
+  const [showTelugu, setShowTelugu] = useState(true); // 🌐 Language toggle (Telugu enabled by default)
+  
+  // Inspection scheduling state
+  const [showInspectionModal, setShowInspectionModal] = useState(false);
+  const [scheduledInspections, setScheduledInspections] = useState<any[]>([]);
+  const [inspectionFormData, setInspectionFormData] = useState({
+    inspectionType: 'pre_storage',
+    bookingId: '',
+    cropType: '',
+    quantityKg: '',
+    locationAddress: '',
+    requestedDate: '',
+    preferredTimeSlot: 'morning',
+    farmerNotes: ''
+  });
+  
   const [bookingFormData, setBookingFormData] = useState({
     cropType: '',
     quantityKg: '',
@@ -54,6 +72,40 @@ const StorageGuard = () => {
 
   // API base URL
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+
+  // 🌐 Bilingual labels (Telugu + English)
+  const t = (english: string, telugu: string) => {
+    if (!showTelugu) return english;
+    return `${telugu} / ${english}`;
+  };
+
+  const teluguLabels = {
+    crop: 'పంట / Crop',
+    quality: 'నాణ్యత / Quality',
+    grade: 'గ్రేడ్ / Grade',
+    freshness: 'తాజాతనం / Freshness',
+    defects: 'లోపాలు / Defects',
+    shelfLife: 'షెల్ఫ్ లైఫ్ / Shelf Life',
+    days: 'రోజులు / days',
+    quantity: 'పరిమాణం / Quantity',
+    duration: 'వ్యవధి / Duration',
+    startDate: 'ప్రారంభ తేదీ / Start Date',
+    totalAmount: 'మొత్తం మొత్తం / Total Amount',
+    pending: 'పెండింగ్ / PENDING',
+    confirmed: 'నిర్ధారించబడింది / CONFIRMED',
+    completed: 'పూర్తయింది / COMPLETED',
+    cancelled: 'రద్దు చేయబడింది / CANCELLED',
+    certificateEligible: '✅ సర్టిఫికేట్ అర్హత (AI ధృవీకరించబడింది) / Certificate Eligible (AI Verified)',
+    noCertificate: '⚠️ సర్టిఫికేట్ లేదు (త్వరిత బుకింగ్) / No Certificate (Quick Booking)',
+    waitingVendor: '⏳ విక్రేత ఆమోదం కోసం వేచి ఉంది / Waiting for Vendor Acceptance',
+    cancelBooking: 'బుకింగ్ రద్దు చేయండి / Cancel Booking',
+    completeBooking: 'పూర్తి & సర్టిఫికేట్ రూపొందించండి / Complete & Generate Certificate',
+    noCertificateAvailable: '🔒 సర్టిఫికేట్ అందుబాటులో లేదు (AI లేదు) / Certificate Unavailable (No AI)',
+    excellent: 'అత్యుత్తమ / Excellent',
+    good: 'మంచి / Good',
+    fair: 'సరైన / Fair',
+    poor: 'పేద / Poor'
+  };
 
   // Utility function to get user ID from various sources
   const getUserId = (): string | null => {
@@ -211,9 +263,14 @@ const StorageGuard = () => {
         return;
       }
 
+      // Ask for quantity
+      const quantityInput = prompt('Enter quantity in kg (default: 500):', '500');
+      const quantity = quantityInput ? parseFloat(quantityInput) : 500;
+
       const formData = new FormData();
       formData.append('file', file);
       formData.append('crop_type', cropName.trim());  // Send crop name to backend
+      formData.append('quantity_kg', quantity.toString());  // Send quantity
 
       try {
         const response = await fetch(`${API_BASE}/storage-guard/analyze?farmer_id=${userId}`, {
@@ -310,22 +367,93 @@ const StorageGuard = () => {
         console.log('Booking response:', data);
         
         // Show quality results
-        const report = data.quality_report || data.report;
+        const report = data.quality_report || data.report || data.analysis;
         if (report) {
+          const freshnessTelugu = report.freshness === 'Excellent' ? 'అత్యుత్తమ' : 
+                                  report.freshness === 'Good' ? 'మంచి' : 
+                                  report.freshness === 'Fair' ? 'సరైన' : 'పేద';
+          
+          // Build defect display - show defects array and detailed analysis
+          let defectDisplay = null;
+          const hasDefects = Array.isArray(report.defects) && report.defects.length > 0;
+          
+          if (hasDefects || report.detailed_analysis) {
+            defectDisplay = (
+              <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-md space-y-2">
+                {hasDefects && (
+                  <>
+                    <p className="font-semibold text-sm">
+                      {showTelugu ? '⚠️ లోపాలు కనుగొనబడ్డాయి / Defects Found:' : '⚠️ Defects Found:'}
+                    </p>
+                    <ul className="text-sm list-disc list-inside space-y-1">
+                      {report.defects.map((defect: any, idx: number) => {
+                        const defectText = typeof defect === 'string' ? defect : (defect.type || 'Defect detected');
+                        return <li key={idx} className="text-red-600 font-medium">{defectText}</li>;
+                      })}
+                    </ul>
+                  </>
+                )}
+                {report.detailed_analysis && (
+                  <div className="mt-2 pt-2 border-t border-yellow-300">
+                    <p className="font-semibold text-sm mb-1">
+                      {showTelugu ? '📊 వివరణాత్మక విశ్లేషణ / Detailed Analysis:' : '📊 Detailed Analysis:'}
+                    </p>
+                    <p className="text-sm">{report.detailed_analysis}</p>
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          // Build farmer advice display
+          let adviceDisplay = null;
+          if (report.farmer_advice) {
+            adviceDisplay = (
+              <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-md">
+                <p className="font-semibold text-sm mb-1">
+                  {showTelugu ? '💡 రైతు సలహా / Farmer Advice:' : '💡 Farmer Advice:'}
+                </p>
+                <p className="text-sm">{report.farmer_advice}</p>
+              </div>
+            );
+          }
+          
           toast({
-            title: "✅ Quality Analysis Complete!",
+            title: showTelugu ? "✅ నాణ్యత విశ్లేషణ పూర్తయింది! / Quality Analysis Complete!" : "✅ Quality Analysis Complete!",
             description: (
-              <div className="mt-2 space-y-1">
-                <p><strong>Crop:</strong> {cropName}</p>
-                <p><strong>Grade:</strong> {report.overall_quality}</p>
-                <p><strong>Shelf Life:</strong> {report.shelf_life_days} days</p>
-                <p><strong>Defects Found:</strong> {report.defects_found || 0}</p>
+              <div className="mt-2 space-y-1 max-h-[400px] overflow-y-auto">
+                <p><strong>{showTelugu ? 'పంట / Crop:' : 'Crop:'}</strong> {cropName}</p>
+                <p><strong>{showTelugu ? 'గ్రేడ్ / Grade:' : 'Grade:'}</strong> {report.overall_quality || report.quality_grade}</p>
+                <p><strong>{showTelugu ? 'తాజాతనం / Freshness:' : 'Freshness:'}</strong> {showTelugu ? `${freshnessTelugu} / ${report.freshness}` : report.freshness}</p>
+                <p><strong>{showTelugu ? 'షెల్ఫ్ లైఫ్ / Shelf Life:' : 'Shelf Life:'}</strong> {report.shelf_life_days} {showTelugu ? 'రోజులు / days' : 'days'}</p>
+                {defectDisplay}
+                {adviceDisplay}
+                {showTelugu && <p className="text-green-600 font-medium mt-2">RFQ సృష్టించబడింది! విక్రేతలు ఇప్పుడు నిల్వ కోసం బిడ్ చేయవచ్చు.</p>}
                 <p className="text-green-600 font-medium mt-2">RFQ created! Vendors can now bid for storage.</p>
               </div>
             ),
-            duration: 8000,
+            duration: 15000,
           });
         }
+        
+        // ✅ AUTO-FILL booking form with AI analysis results
+        const optimalDays = data.optimal_storage_days || report?.optimal_storage_days || 30;
+        const quantityKg = data.quantity_kg || quantity;
+        const detectedCrop = report?.crop_detected || cropName;
+        
+        // ✅ SAVE INSPECTION ID for certificate eligibility
+        const inspectionId = data.inspection_id || null;
+        setCurrentInspectionId(inspectionId);
+        console.log(`🔬 AI Inspection ID saved: ${inspectionId}`);
+        
+        setBookingFormData({
+          cropType: detectedCrop,
+          quantityKg: quantityKg.toString(),
+          durationDays: optimalDays.toString(),
+          specialRequirements: ''
+        });
+        
+        console.log(`📝 Form pre-filled: ${detectedCrop}, ${quantityKg}kg, ${optimalDays} days`);
         
         setStorageSuggestions(data.suggestions || data.storage_suggestions || []);
         setShowBookingModal(true);
@@ -384,20 +512,25 @@ const StorageGuard = () => {
           duration_days: parseInt(bookingFormData.durationDays),
           start_date: new Date().toISOString(),
           transport_required: false,
-          ai_inspection_id: null
+          ai_inspection_id: currentInspectionId  // ✅ Use saved inspection ID from AI analysis
         })
       });
 
       if (response.ok) {
         const booking = await response.json();
+        console.log(`✅ Booking created with AI inspection: ${currentInspectionId ? 'YES' : 'NO'}`);
         toast({
           title: "✅ Booking Created!",
-          description: "Your storage booking has been created successfully",
+          description: currentInspectionId 
+            ? "Your storage booking has been created successfully. Certificate eligible!" 
+            : "Your storage booking has been created successfully",
           duration: 5000,
         });
         setShowBookingModal(false);
+        setCurrentInspectionId(null); // Reset for next booking
         fetchMyBookings();
         fetchFarmerDashboard();
+        fetchTransportData(); // 🚚 Refresh transport fleet after new booking
       } else {
         const error = await response.json();
         toast({
@@ -419,12 +552,36 @@ const StorageGuard = () => {
   const fetchMyBookings = async () => {
     try {
       const userId = getUserId();
-      if (!userId) return;
+      console.log('🔍 Fetching bookings for farmer:', userId);
+      if (!userId) {
+        console.error('❌ No user ID found! Check localStorage/sessionStorage');
+        toast({
+          title: "Authentication Issue",
+          description: "User ID not found. Please log in again.",
+          variant: "destructive",
+        });
+        return;
+      }
       
+      console.log(`📡 Calling: ${API_BASE}/storage-guard/my-bookings?farmer_id=${userId}`);
       const response = await fetch(`${API_BASE}/storage-guard/my-bookings?farmer_id=${userId}`);
+      console.log(`📥 Response status: ${response.status}`);
+      
       if (response.ok) {
         const data = await response.json();
+        console.log(`✅ Received ${data.total} bookings:`, data.bookings);
         setMyBookings(data.bookings || []);
+        
+        if (data.bookings && data.bookings.length === 0) {
+          console.log('ℹ️ No bookings found for this farmer');
+        }
+      } else {
+        console.error('❌ Bookings fetch failed:', response.status, await response.text());
+        toast({
+          title: "Failed to Load Bookings",
+          description: `Server returned error ${response.status}`,
+          variant: "destructive",
+        });
       }
       
       // Also fetch farmer's RFQs
@@ -441,13 +598,175 @@ const StorageGuard = () => {
   const fetchFarmerDashboard = async () => {
     try {
       const userId = getUserId();
+      console.log('🔍 Fetching dashboard for farmer:', userId);
+      if (!userId) {
+        console.error('❌ No user ID found! Check localStorage/sessionStorage');
+        return;
+      }
       const response = await fetch(`${API_BASE}/storage-guard/farmer-dashboard?farmer_id=${userId}`);
       if (response.ok) {
         const data = await response.json();
+        console.log('✅ Dashboard data received:', data.summary);
         setFarmerDashboard(data);
+      } else {
+        console.error('❌ Dashboard fetch failed:', response.status);
       }
     } catch (error) {
       console.error('Error fetching dashboard:', error);
+    }
+  };
+
+  // Fetch scheduled inspections
+  const fetchScheduledInspections = async () => {
+    try {
+      const userId = getUserId();
+      if (!userId) return;
+      
+      const response = await fetch(`${API_BASE}/storage-guard/my-inspections?farmer_id=${userId}`);
+      if (response.ok) {
+        const data = await response.json();
+        console.log('✅ Inspections data:', data);
+        setScheduledInspections(data.inspections || []);
+      }
+    } catch (error) {
+      console.error('Error fetching inspections:', error);
+    }
+  };
+
+  // Schedule new inspection
+  const handleScheduleInspection = async () => {
+    try {
+      const userId = getUserId();
+      if (!userId) {
+        toast({
+          title: "Authentication Required",
+          description: "Please log in to schedule an inspection",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Validate form
+      const missingFields = [];
+      if (!inspectionFormData.cropType?.trim()) missingFields.push("Crop Type");
+      if (!inspectionFormData.quantityKg || parseInt(inspectionFormData.quantityKg) <= 0) missingFields.push("Quantity");
+      if (!inspectionFormData.locationAddress?.trim()) missingFields.push("Location Address");
+      if (!inspectionFormData.requestedDate?.trim()) missingFields.push("Preferred Date");
+      
+      if (missingFields.length > 0) {
+        toast({
+          title: "Missing Information",
+          description: `Please fill in: ${missingFields.join(", ")}`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const requestData = {
+        inspection_type: inspectionFormData.inspectionType,
+        booking_id: inspectionFormData.bookingId || null,
+        crop_type: inspectionFormData.cropType,
+        quantity_kg: parseInt(inspectionFormData.quantityKg),
+        location_address: inspectionFormData.locationAddress,
+        requested_date: new Date(inspectionFormData.requestedDate).toISOString(),
+        preferred_time_slot: inspectionFormData.preferredTimeSlot,
+        farmer_notes: inspectionFormData.farmerNotes || null
+      };
+
+      const response = await fetch(`${API_BASE}/storage-guard/schedule-inspection?farmer_id=${userId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestData)
+      });
+
+      if (response.ok) {
+        const inspection = await response.json();
+        toast({
+          title: "✅ Inspection Scheduled!",
+          description: `Your inspection request has been submitted. You'll be notified once a vendor confirms.`,
+          duration: 5000,
+        });
+        setShowInspectionModal(false);
+        
+        // Reset form
+        setInspectionFormData({
+          inspectionType: 'pre_storage',
+          bookingId: '',
+          cropType: '',
+          quantityKg: '',
+          locationAddress: '',
+          requestedDate: '',
+          preferredTimeSlot: 'morning',
+          farmerNotes: ''
+        });
+        
+        // Refresh inspections list
+        fetchScheduledInspections();
+      } else {
+        const error = await response.json();
+        toast({
+          title: "Scheduling Failed",
+          description: error.detail || "Failed to schedule inspection",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Error scheduling inspection:', error);
+      toast({
+        title: "Error",
+        description: "Network error while scheduling inspection",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Cancel inspection
+  const handleCancelInspection = async (inspectionId: string) => {
+    try {
+      const userId = getUserId();
+      if (!userId) return;
+
+      const reason = prompt('Please provide a reason for cancellation:');
+      if (!reason) return;
+
+      const response = await fetch(`${API_BASE}/storage-guard/inspections/${inspectionId}/cancel?user_id=${userId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cancellation_reason: reason })
+      });
+
+      if (response.ok) {
+        toast({
+          title: "Inspection Cancelled",
+          description: "The inspection has been cancelled successfully",
+        });
+        fetchScheduledInspections();
+      } else {
+        const error = await response.json();
+        toast({
+          title: "Cancellation Failed",
+          description: error.detail || "Failed to cancel inspection",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Error cancelling inspection:', error);
+    }
+  };
+
+  const fetchTransportData = async () => {
+    try {
+      console.log('🚚 Fetching transport fleet data...');
+      const response = await fetch(`${API_BASE}/storage-guard/transport`);
+      if (response.ok) {
+        const data = await response.json();
+        console.log('✅ Transport data received:', data.transport_fleet);
+        setTransportData(data);
+      } else {
+        console.error('❌ Transport fetch failed:', response.status);
+      }
+    } catch (error) {
+      console.error('Error fetching transport data:', error);
     }
   };
 
@@ -477,6 +796,7 @@ const StorageGuard = () => {
         });
         fetchMyBookings();
         fetchFarmerDashboard();
+        fetchTransportData(); // 🚚 Refresh transport fleet after cancellation
       } else {
         toast({
           title: "Cancellation Failed",
@@ -601,6 +921,7 @@ const StorageGuard = () => {
     fetchStorageData();
     fetchMyBookings();
     fetchFarmerDashboard();
+    fetchScheduledInspections();
   }, [API_BASE]);
 
   const storageServices = [
@@ -799,19 +1120,34 @@ const StorageGuard = () => {
         {/* AI Computer Vision & IoT Monitoring */}
         <Card className="mb-8">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Camera className="h-6 w-6 text-primary" />
-              AI Computer Vision & IoT Monitoring
-            </CardTitle>
-            <CardDescription>Real-time quality analysis and environmental monitoring</CardDescription>
+            <div className="flex justify-between items-center">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Camera className="h-6 w-6 text-primary" />
+                  {showTelugu ? 'AI కంప్యూటర్ విజన్ & IoT పర్యవేక్షణ / AI Computer Vision & IoT Monitoring' : 'AI Computer Vision & IoT Monitoring'}
+                </CardTitle>
+                <CardDescription>
+                  {showTelugu ? 'నిజ-సమయ నాణ్యత విశ్లేషణ మరియు పర్యావరణ పర్యవేక్షణ / Real-time quality analysis and environmental monitoring' : 'Real-time quality analysis and environmental monitoring'}
+                </CardDescription>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowTelugu(!showTelugu)}
+                className="flex items-center gap-2"
+              >
+                🌐 {showTelugu ? 'తెలుగు/EN' : 'English'}
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="quality-analysis" className="w-full">
-              <TabsList className="grid grid-cols-7 w-full">
+              <TabsList className="grid grid-cols-8 w-full">
                 <TabsTrigger value="quality-analysis">Quality Analysis</TabsTrigger>
                 <TabsTrigger value="pest-detection">Pest Detection</TabsTrigger>
                 <TabsTrigger value="iot-sensors">IoT Sensors</TabsTrigger>
                 <TabsTrigger value="my-bookings">My Bookings</TabsTrigger>
+                <TabsTrigger value="market">🛒 Market</TabsTrigger>
                 <TabsTrigger value="certificates">📜 Certificates</TabsTrigger>
                 <TabsTrigger value="vendor-services">Vendor Services</TabsTrigger>
                 <TabsTrigger value="rfqs-jobs">RFQs & Jobs</TabsTrigger>
@@ -828,7 +1164,15 @@ const StorageGuard = () => {
                       {/* Show image name and thumbnail if available */}
                       {item.image && (
                         <div className="mb-2 flex items-center gap-2">
-                          <img src={typeof item.image === 'string' ? `${API_BASE}/uploads/${item.image}` : ''} alt={item.image} style={{width: 40, height: 40, objectFit: 'cover', borderRadius: 4}} />
+                          <img 
+                            src={typeof item.image === 'string' ? `${API_BASE}/uploads/${item.image}` : ''} 
+                            alt={item.image} 
+                            style={{width: 40, height: 40, objectFit: 'cover', borderRadius: 4}} 
+                            onError={(e) => {
+                              // Hide image if it fails to load
+                              e.currentTarget.style.display = 'none';
+                            }}
+                          />
                           <span className="text-xs text-muted-foreground">{item.image}</span>
                         </div>
                       )}
@@ -845,12 +1189,19 @@ const StorageGuard = () => {
                           <span>Defects:</span>
                           <span className="font-medium">
                             {Array.isArray(item.defects) && item.defects.length > 0
-                              ? item.defects.map((defect: any, i: number) => (
-                                  <span key={i}>
-                                    {defect.type} ({Math.round(defect.confidence * 100)}%)
-                                    {i < item.defects.length - 1 ? ', ' : ''}
-                                  </span>
-                                ))
+                              ? item.defects.map((defect: any, i: number) => {
+                                  const defectText = typeof defect === 'string' 
+                                    ? defect 
+                                    : defect.type 
+                                      ? `${defect.type}${defect.confidence ? ` (${Math.round(defect.confidence * 100)}%)` : ''}` 
+                                      : 'Defect';
+                                  return (
+                                    <span key={i}>
+                                      {defectText}
+                                      {i < item.defects.length - 1 ? ', ' : ''}
+                                    </span>
+                                  );
+                                })
                               : typeof item.defects === 'string'
                                 ? item.defects
                                 : 'None'}
@@ -869,7 +1220,7 @@ const StorageGuard = () => {
                     <Smartphone className="w-4 h-4 mr-2" />
                     Upload Quality Images
                   </Button>
-                  <Button variant="outline">
+                  <Button variant="outline" onClick={() => setShowInspectionModal(true)}>
                     <Camera className="w-4 h-4 mr-2" />
                     Schedule Inspection
                   </Button>
@@ -922,6 +1273,28 @@ const StorageGuard = () => {
               </TabsContent>
 
               <TabsContent value="my-bookings" className="space-y-4">
+                {/* Debug Info & Refresh Button */}
+                <div className="flex items-center justify-between p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg mb-4">
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">Your Farmer ID:</span>
+                    <code className="ml-2 px-2 py-1 bg-background rounded text-xs">{getUserId() || 'Not found! Please login again'}</code>
+                  </div>
+                  <Button 
+                    onClick={() => {
+                      console.log('🔄 Manual refresh triggered');
+                      fetchMyBookings();
+                      fetchFarmerDashboard();
+                      fetchTransportData(); // 🚚 Also refresh transport data
+                    }}
+                    size="sm"
+                    variant="outline"
+                    className="gap-2"
+                  >
+                    <Package2 className="w-4 h-4" />
+                    Refresh Data
+                  </Button>
+                </div>
+
                 {/* Farmer Dashboard Summary */}
                 {farmerDashboard?.summary && (
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
@@ -964,7 +1337,7 @@ const StorageGuard = () => {
                         return;
                       }
 
-                      // Get booking details from farmer
+                      // Get booking details from farmer - ASK CROP FIRST
                       const cropType = prompt('Enter crop type (e.g., Tomatoes, Rice, Wheat):');
                       if (!cropType) return;
 
@@ -974,14 +1347,35 @@ const StorageGuard = () => {
                       const duration = prompt('Enter storage duration in days (e.g., 30):');
                       if (!duration) return;
 
-                      // Get storage locations
+                      // Determine storage type based on crop
+                      const cropLower = cropType.toLowerCase();
+                      let storageType = 'dry_storage'; // Default
+                      
+                      // Grains, pulses, cash crops → Dry storage
+                      if (cropLower.includes('wheat') || cropLower.includes('rice') || cropLower.includes('corn') ||
+                          cropLower.includes('maize') || cropLower.includes('barley') || cropLower.includes('millet') ||
+                          cropLower.includes('chickpea') || cropLower.includes('lentil') || cropLower.includes('bean') ||
+                          cropLower.includes('cotton') || cropLower.includes('jute')) {
+                        storageType = 'dry_storage';
+                      }
+                      // Vegetables, fruits → Cold storage
+                      else if (cropLower.includes('tomato') || cropLower.includes('potato') || cropLower.includes('onion') ||
+                               cropLower.includes('carrot') || cropLower.includes('cabbage') || cropLower.includes('leafy') ||
+                               cropLower.includes('apple') || cropLower.includes('banana') || cropLower.includes('mango') ||
+                               cropLower.includes('grape') || cropLower.includes('orange')) {
+                        storageType = 'cold_storage';
+                      }
+
+                      console.log(`🔍 Quick Booking: ${cropType} → ${storageType}`);
+
+                      // Get storage locations FILTERED BY TYPE
                       try {
                         toast({
                           title: "Finding Storage...",
-                          description: "Searching for available storage facilities",
+                          description: `Searching for ${storageType === 'cold_storage' ? 'cold' : 'dry'} storage facilities for ${cropType}`,
                         });
 
-                        const locationsRes = await fetch(`${API_BASE}/storage-guard/locations?limit=10`);
+                        const locationsRes = await fetch(`${API_BASE}/storage-guard/locations?limit=10&type=${storageType}`);
                         const locationsData = await locationsRes.json();
                         
                         console.log('Locations API response:', locationsData);
@@ -990,7 +1384,7 @@ const StorageGuard = () => {
                           console.error('No locations found:', locationsData);
                           toast({
                             title: "No Storage Locations",
-                            description: `API returned: ${JSON.stringify(locationsData)}. Please check backend logs.`,
+                            description: `No ${storageType === 'cold_storage' ? 'cold' : 'dry'} storage available for ${cropType}. Please try AI analysis for more options.`,
                             variant: "destructive",
                           });
                           return;
@@ -1047,6 +1441,7 @@ const StorageGuard = () => {
                           // Refresh bookings
                           fetchMyBookings();
                           fetchFarmerDashboard();
+                          fetchTransportData(); // 🚚 Refresh transport fleet after quick booking
                         } else {
                           const error = await bookingRes.json();
                           toast({
@@ -1084,7 +1479,7 @@ const StorageGuard = () => {
                             <div>
                               <h4 className="font-semibold text-lg">{booking.crop_type}</h4>
                               <p className="text-sm text-muted-foreground">
-                                Quantity: {booking.quantity_kg} kg | Duration: {booking.duration_days} days
+                                {showTelugu ? 'పరిమాణం:' : 'Quantity:'} {booking.quantity_kg} kg | {showTelugu ? 'వ్యవధి:' : 'Duration:'} {booking.duration_days} {showTelugu ? 'రోజులు' : 'days'}
                               </p>
                             </div>
                             <Badge variant={
@@ -1107,6 +1502,17 @@ const StorageGuard = () => {
                               <p className="font-medium text-lg">₹{booking.total_price?.toLocaleString()}</p>
                             </div>
                           </div>
+                          
+                          {/* Certificate Eligibility Badge */}
+                          {booking.ai_inspection_id ? (
+                            <Badge variant="default" className="bg-green-600 text-xs mb-2">
+                              ✅ Certificate Eligible
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary" className="bg-gray-600 text-xs mb-2">
+                              ⚠️ No Certificate
+                            </Badge>
+                          )}
 
                           {booking.special_requirements && (
                             <p className="text-sm text-muted-foreground mb-2">
@@ -1117,17 +1523,17 @@ const StorageGuard = () => {
                           <div className="space-y-2">
                             {/* Vendor Confirmation Status */}
                             {booking.vendor_confirmed ? (
-                              <Badge variant="default" className="bg-green-600">
+                              <Badge variant="default" className="bg-green-600 text-xs">
                                 <CheckCircle className="w-3 h-3 mr-1" />
-                                ✅ Vendor Accepted - Booking Confirmed
+                                ✅ Confirmed
                               </Badge>
                             ) : booking.booking_status === 'PENDING' ? (
-                              <Badge variant="secondary" className="bg-yellow-600">
-                                ⏳ Waiting for Vendor Acceptance
+                              <Badge variant="secondary" className="bg-yellow-600 text-xs">
+                                ⏳ Pending
                               </Badge>
                             ) : booking.booking_status === 'CANCELLED' ? (
-                              <Badge variant="destructive">
-                                ❌ Booking Cancelled
+                              <Badge variant="destructive" className="text-xs">
+                                ❌ Cancelled
                               </Badge>
                             ) : null}
                             
@@ -1137,9 +1543,10 @@ const StorageGuard = () => {
                                 <Button 
                                   variant="destructive" 
                                   size="sm"
+                                  className="text-xs h-8"
                                   onClick={() => handleCancelBooking(booking.id)}
                                 >
-                                  Cancel Booking
+                                  Cancel
                                 </Button>
                               )}
                               
@@ -1147,9 +1554,21 @@ const StorageGuard = () => {
                               {(booking.booking_status?.toLowerCase() === 'confirmed' || 
                                 booking.booking_status?.toLowerCase() === 'active') && (
                                 <Button 
-                                  className="bg-green-600 hover:bg-green-700"
+                                  className="bg-green-600 hover:bg-green-700 text-xs h-8"
                                   size="sm"
+                                  disabled={!booking.ai_inspection_id}
                                   onClick={async () => {
+                                    // Check certificate eligibility
+                                    if (!booking.ai_inspection_id) {
+                                      toast({
+                                        title: "❌ Certificate Not Available",
+                                        description: "This booking was created without AI quality inspection (Quick Booking). Certificates require AI analysis. Please use 'Analyze & Book' option for future bookings.",
+                                        variant: "destructive",
+                                        duration: 8000,
+                                      });
+                                      return;
+                                    }
+                                    
                                     try {
                                       const response = await fetch(`${API_BASE}/storage-guard/bookings/${booking.id}/complete`, {
                                         method: 'POST'
@@ -1197,33 +1616,35 @@ const StorageGuard = () => {
                                     }
                                   }}
                                 >
-                                  <FileCheck className="w-4 h-4 mr-2" />
-                                  Complete & Generate Certificate
+                                  <FileCheck className="w-3 h-3 mr-1" />
+                                  {booking.ai_inspection_id 
+                                    ? 'Complete & Certificate' 
+                                    : '🔒 No Certificate'}
                                 </Button>
                               )}
                               
                               {/* Show message for pending bookings */}
                               {booking.booking_status?.toLowerCase() === 'pending' && !booking.vendor_confirmed && (
                                 <Button 
-                                  className="bg-yellow-600 hover:bg-yellow-700"
+                                  className="bg-yellow-600 hover:bg-yellow-700 text-xs h-8"
                                   size="sm"
                                   onClick={() => {
                                     toast({
                                       title: "⏳ Booking Pending",
-                                      description: "Sorry, the vendor has not yet accepted your booking. Still in process. Please wait for vendor confirmation.",
+                                      description: "Vendor has not yet accepted. Please wait for confirmation.",
                                       variant: "default",
                                     });
                                   }}
                                 >
-                                  <Clock className="w-4 h-4 mr-2" />
-                                  Complete & Generate Certificate
+                                  <Clock className="w-3 h-3 mr-1" />
+                                  Complete & Certificate
                                 </Button>
                               )}
                               
                               {booking.booking_status?.toLowerCase() === 'completed' && (
-                                <Badge variant="default" className="bg-green-600">
+                                <Badge variant="default" className="bg-green-600 text-xs">
                                   <FileCheck className="w-3 h-3 mr-1" />
-                                  ✅ Completed - Certificate Issued
+                                  ✅ Completed
                                 </Badge>
                               )}
                             </div>
@@ -1238,6 +1659,125 @@ const StorageGuard = () => {
                       <Button className="agri-button-primary" onClick={handleBookStorageClick}>
                         <Package2 className="w-4 h-4 mr-2" />
                         Create Your First Booking
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Scheduled Inspections Section */}
+                <div className="mt-8">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold flex items-center gap-2">
+                      <Camera className="w-5 h-5" />
+                      Scheduled Inspections
+                    </h3>
+                    <Button size="sm" variant="outline" onClick={() => setShowInspectionModal(true)}>
+                      <Camera className="w-4 h-4 mr-2" />
+                      Schedule New
+                    </Button>
+                  </div>
+
+                  {scheduledInspections.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {scheduledInspections.map((inspection) => (
+                        <div key={inspection.id} className="p-4 border border-border rounded-lg bg-card hover:shadow-md transition-shadow">
+                          <div className="flex items-start justify-between mb-3">
+                            <div>
+                              <h4 className="font-semibold">{inspection.crop_type}</h4>
+                              <p className="text-sm text-muted-foreground capitalize">
+                                {inspection.inspection_type.replace('_', ' ')}
+                              </p>
+                            </div>
+                            <Badge 
+                              variant={
+                                inspection.status === 'completed' ? 'default' :
+                                inspection.status === 'confirmed' ? 'secondary' :
+                                inspection.status === 'cancelled' ? 'destructive' :
+                                'outline'
+                              }
+                              className={
+                                inspection.status === 'completed' ? 'bg-green-600' :
+                                inspection.status === 'confirmed' ? 'bg-blue-600' :
+                                inspection.status === 'cancelled' ? 'bg-red-600' :
+                                'bg-yellow-600'
+                              }
+                            >
+                              {inspection.status.toUpperCase()}
+                            </Badge>
+                          </div>
+
+                          <div className="space-y-2 text-sm">
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Quantity:</span>
+                              <span className="font-medium">{inspection.quantity_kg} kg</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Requested:</span>
+                              <span className="font-medium">
+                                {new Date(inspection.requested_date).toLocaleDateString()}
+                              </span>
+                            </div>
+                            {inspection.scheduled_date && (
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Scheduled:</span>
+                                <span className="font-medium text-green-600">
+                                  {new Date(inspection.scheduled_date).toLocaleString()}
+                                </span>
+                              </div>
+                            )}
+                            {inspection.preferred_time_slot && (
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Time Slot:</span>
+                                <span className="font-medium capitalize">{inspection.preferred_time_slot}</span>
+                              </div>
+                            )}
+                            <div className="pt-2 border-t border-border">
+                              <p className="text-xs text-muted-foreground">
+                                📍 {inspection.location_address.slice(0, 60)}...
+                              </p>
+                            </div>
+                          </div>
+
+                          {inspection.farmer_notes && (
+                            <div className="mt-3 p-2 bg-muted/50 rounded text-xs">
+                              <strong>Notes:</strong> {inspection.farmer_notes}
+                            </div>
+                          )}
+
+                          {inspection.inspector_notes && (
+                            <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded text-xs">
+                              <strong>Inspector:</strong> {inspection.inspector_notes}
+                            </div>
+                          )}
+
+                          {/* Action Buttons */}
+                          <div className="flex gap-2 mt-3">
+                            {inspection.status === 'pending' && (
+                              <Button 
+                                variant="destructive" 
+                                size="sm"
+                                className="text-xs h-7 w-full"
+                                onClick={() => handleCancelInspection(inspection.id)}
+                              >
+                                Cancel
+                              </Button>
+                            )}
+                            {inspection.status === 'completed' && inspection.inspection_result_id && (
+                              <Badge variant="default" className="bg-green-600 text-xs">
+                                ✅ Report Available
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 border border-dashed border-border rounded-lg">
+                      <Camera className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+                      <p className="text-muted-foreground mb-3">No inspections scheduled yet</p>
+                      <Button size="sm" variant="outline" onClick={() => setShowInspectionModal(true)}>
+                        <Camera className="w-4 h-4 mr-2" />
+                        Schedule Your First Inspection
                       </Button>
                     </div>
                   )}
@@ -1347,6 +1887,15 @@ const StorageGuard = () => {
                     </div>
                   </div>
                 )}
+              </TabsContent>
+
+              <TabsContent value="market" className="space-y-4">
+                <MarketIntegrationTab 
+                  userId={getUserId() || ''} 
+                  bookings={myBookings}
+                  apiBase={API_BASE}
+                  toast={toast}
+                />
               </TabsContent>
 
               <TabsContent value="certificates" className="space-y-4">
@@ -2268,6 +2817,144 @@ const StorageGuard = () => {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Schedule Inspection Modal */}
+      {showInspectionModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-background rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold flex items-center gap-2">
+                  <Camera className="w-6 h-6" />
+                  Schedule Quality Inspection
+                </h2>
+                <button 
+                  onClick={() => setShowInspectionModal(false)}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">Inspection Type *</label>
+                  <select
+                    className="w-full px-3 py-2 border border-border rounded-lg"
+                    value={inspectionFormData.inspectionType}
+                    onChange={(e) => setInspectionFormData({...inspectionFormData, inspectionType: e.target.value})}
+                  >
+                    <option value="pre_storage">Pre-Storage (Before Booking)</option>
+                    <option value="during_storage">During Storage (Quality Check)</option>
+                    <option value="final">Final Inspection (Before Completion)</option>
+                    <option value="dispute">Dispute Resolution</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-2">Related Booking (Optional)</label>
+                  <select
+                    className="w-full px-3 py-2 border border-border rounded-lg"
+                    value={inspectionFormData.bookingId}
+                    onChange={(e) => setInspectionFormData({...inspectionFormData, bookingId: e.target.value})}
+                  >
+                    <option value="">-- Select Booking (Optional) --</option>
+                    {myBookings.map((booking) => (
+                      <option key={booking.id} value={booking.id}>
+                        {booking.crop_type} - {booking.quantity_kg}kg @ {booking.location_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Crop Type *</label>
+                    <input
+                      type="text"
+                      className="w-full px-3 py-2 border border-border rounded-lg"
+                      placeholder="e.g., Tomato, Rice, Cotton"
+                      value={inspectionFormData.cropType}
+                      onChange={(e) => setInspectionFormData({...inspectionFormData, cropType: e.target.value})}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Quantity (kg) *</label>
+                    <input
+                      type="number"
+                      className="w-full px-3 py-2 border border-border rounded-lg"
+                      placeholder="e.g., 1000"
+                      value={inspectionFormData.quantityKg}
+                      onChange={(e) => setInspectionFormData({...inspectionFormData, quantityKg: e.target.value})}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-2">Location Address *</label>
+                  <textarea
+                    className="w-full px-3 py-2 border border-border rounded-lg"
+                    rows={3}
+                    placeholder="Full address where inspection should take place"
+                    value={inspectionFormData.locationAddress}
+                    onChange={(e) => setInspectionFormData({...inspectionFormData, locationAddress: e.target.value})}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Preferred Date *</label>
+                    <input
+                      type="datetime-local"
+                      className="w-full px-3 py-2 border border-border rounded-lg"
+                      value={inspectionFormData.requestedDate}
+                      onChange={(e) => setInspectionFormData({...inspectionFormData, requestedDate: e.target.value})}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Time Slot</label>
+                    <select
+                      className="w-full px-3 py-2 border border-border rounded-lg"
+                      value={inspectionFormData.preferredTimeSlot}
+                      onChange={(e) => setInspectionFormData({...inspectionFormData, preferredTimeSlot: e.target.value})}
+                    >
+                      <option value="morning">Morning (8 AM - 12 PM)</option>
+                      <option value="afternoon">Afternoon (12 PM - 4 PM)</option>
+                      <option value="evening">Evening (4 PM - 7 PM)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-2">Additional Notes</label>
+                  <textarea
+                    className="w-full px-3 py-2 border border-border rounded-lg"
+                    rows={3}
+                    placeholder="Any special requirements or concerns"
+                    value={inspectionFormData.farmerNotes}
+                    onChange={(e) => setInspectionFormData({...inspectionFormData, farmerNotes: e.target.value})}
+                  />
+                </div>
+
+                <div className="flex gap-2 justify-end mt-6">
+                  <Button variant="outline" onClick={() => setShowInspectionModal(false)}>
+                    Cancel
+                  </Button>
+                  <Button 
+                    className="agri-button-primary"
+                    onClick={handleScheduleInspection}
+                  >
+                    <CheckCircle className="w-4 h-4 mr-2" />
+                    Schedule Inspection
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

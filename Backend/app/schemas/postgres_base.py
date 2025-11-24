@@ -608,6 +608,27 @@ class Buyer(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
     user = relationship("User", back_populates="buyer")
 
+
+# ---------------- BuyerPreferences ---------------- #
+class BuyerPreferences(Base):
+    __tablename__ = "buyer_preferences"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    buyer_id = Column(UUID(as_uuid=True), ForeignKey("buyers.user_id", ondelete="CASCADE"), unique=True)
+    crop_types = Column(ARRAY(String), nullable=True)  # e.g., ["rice", "wheat"]
+    quality_grades = Column(ARRAY(String), nullable=True)  # e.g., ["A", "B"]
+    min_quantity_kg = Column(Numeric(10, 2), nullable=True)
+    max_quantity_kg = Column(Numeric(10, 2), nullable=True)
+    preferred_locations = Column(ARRAY(String), nullable=True)  # Districts/states
+    max_distance_km = Column(Integer, nullable=True)
+    payment_terms = Column(String(100), nullable=True)  # e.g., "50% advance, 50% on delivery"
+    delivery_preference = Column(String(50), nullable=True)  # "PICKUP", "DELIVERY", "BOTH"
+    auto_match_enabled = Column(Boolean, default=True)
+    notification_enabled = Column(Boolean, default=True)
+    price_alert_threshold = Column(Numeric(10, 2), nullable=True)  # Alert when price drops below this
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 # ---------------- PasswordResetToken ---------------- #
 class PasswordResetToken(Base):
     __tablename__ = "password_reset_tokens"
@@ -1260,6 +1281,9 @@ class CropInspection(Base):
     recommendation = Column(Text)
     image_urls = Column(JSON, default=list)
     shelf_life_days = Column(Integer, nullable=True)
+    freshness = Column(String(120), nullable=True)  # NEW: Freshness level
+    freshness_score = Column(Numeric(3, 2), nullable=True)  # NEW: 0.00-1.00
+    visual_defects = Column(Text, nullable=True)  # NEW: Visual defect summary
     rfq_id = Column(PGUUID(as_uuid=True), ForeignKey("storage_rfq.id", ondelete="SET NULL"))
     rfq = relationship("StorageRFQ", back_populates="inspection", uselist=False)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
@@ -1310,6 +1334,15 @@ class StorageBooking(Base):
     cancelled_by = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     cancelled_at = Column(DateTime(timezone=True))
     cancellation_reason = Column(Text)
+    
+    # Market Integration (Storage → Market Connect)
+    listed_for_sale = Column(Boolean, default=False)
+    market_listing_id = Column(String(64))  # MongoDB ObjectId
+    target_sale_price = Column(Numeric(12, 2))  # Price per quintal
+    minimum_sale_price = Column(Numeric(12, 2))  # Minimum acceptable price
+    sale_status = Column(String(32))  # LISTED, NEGOTIATING, SOLD, WITHDRAWN
+    listed_at = Column(DateTime(timezone=True))
+    sold_at = Column(DateTime(timezone=True))
     
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -1371,6 +1404,54 @@ class TransportBooking(Base):
     vehicle = relationship("TransportVehicle")
     storage_bookings = relationship("StorageBooking", foreign_keys="StorageBooking.transport_booking_id")
     payments = relationship("BookingPayment", back_populates="transport_booking", cascade="all, delete-orphan")
+
+
+class ScheduledInspection(Base):
+    """On-site quality inspection scheduling for farmers"""
+    __tablename__ = "scheduled_inspections"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    farmer_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    booking_id = Column(PGUUID(as_uuid=True), ForeignKey("storage_bookings.id", ondelete="SET NULL"), nullable=True)
+    vendor_id = Column(PGUUID(as_uuid=True), ForeignKey("vendors.id", ondelete="SET NULL"), nullable=True)
+    
+    # Inspection details
+    inspection_type = Column(String(32), nullable=False)  # pre_storage, during_storage, final, dispute
+    crop_type = Column(String(120), nullable=False)
+    quantity_kg = Column(Integer, nullable=False)
+    
+    # Location
+    location_address = Column(Text, nullable=False)
+    location_lat = Column(Numeric(10, 8))
+    location_lon = Column(Numeric(11, 8))
+    
+    # Scheduling
+    requested_date = Column(DateTime(timezone=True), nullable=False)
+    preferred_time_slot = Column(String(32))  # morning, afternoon, evening
+    scheduled_date = Column(DateTime(timezone=True))
+    completed_date = Column(DateTime(timezone=True))
+    
+    # Status tracking
+    status = Column(String(32), default="pending", nullable=False)  # pending, confirmed, in_progress, completed, cancelled
+    
+    # Notes and communication
+    farmer_notes = Column(Text)
+    inspector_notes = Column(Text)
+    cancellation_reason = Column(Text)
+    
+    # Results (linked after completion)
+    inspection_result_id = Column(PGUUID(as_uuid=True), ForeignKey("crop_inspections.id", ondelete="SET NULL"))
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    confirmed_at = Column(DateTime(timezone=True))
+    
+    # Relationships
+    farmer = relationship("User", foreign_keys=[farmer_id])
+    booking = relationship("StorageBooking", foreign_keys=[booking_id])
+    vendor = relationship("Vendor", foreign_keys=[vendor_id])
+    inspection_result = relationship("CropInspection", foreign_keys=[inspection_result_id])
 
 
 class BookingPayment(Base):
