@@ -4,6 +4,7 @@ Handles storage booking creation, suggestions, and management
 """
 
 import math
+import logging
 from typing import List, Optional
 from uuid import UUID
 from datetime import datetime, timezone, timedelta
@@ -13,6 +14,9 @@ from fastapi import HTTPException, status
 
 from app.schemas import postgres_base as models
 from app.schemas import postgres_base_models as schemas
+from app.services import market_sync
+
+logger = logging.getLogger(__name__)
 
 
 def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -244,28 +248,71 @@ def create_storage_booking(
         print(f"   Large Qty (≥1000kg): {is_large_quantity}")
         print(f"   → Transport Required: {transport_required}")
     
+    # Populate grade from AI inspection if not provided
+    grade_value = booking_data.grade if hasattr(booking_data, 'grade') else None
+    try:
+        if not grade_value:
+            insp = None
+            if getattr(booking_data, 'ai_inspection_id', None):
+                insp = db.query(models.CropInspection).filter(
+                    models.CropInspection.id == booking_data.ai_inspection_id
+                ).first()
+            else:
+                # Try to find most recent inspection for this farmer and crop/location
+                insp = db.query(models.CropInspection).filter(
+                    models.CropInspection.farmer_id == farmer_id,
+                ).order_by(models.CropInspection.created_at.desc()).first()
+
+            if insp:
+                # CropInspection stores grade in `grade` or `overall_quality`
+                grade_value = getattr(insp, 'grade', None) or getattr(insp, 'overall_quality', None)
+                # If we found an inspection and ai_inspection_id was not provided, attach it
+                if not getattr(booking_data, 'ai_inspection_id', None):
+                    booking_data.ai_inspection_id = insp.id
+    except Exception as e:
+        print(f"Warning: could not populate grade from inspection: {e}")
+
     # Create booking
-    new_booking = models.StorageBooking(
-        farmer_id=farmer_id,
-        location_id=booking_data.location_id,
-        vendor_id=location.vendor_id,
-        ai_inspection_id=booking_data.ai_inspection_id,
-        crop_type=booking_data.crop_type,
-        quantity_kg=booking_data.quantity_kg,
-        grade=booking_data.grade,
-        duration_days=booking_data.duration_days,
-        start_date=booking_data.start_date,
-        end_date=end_date,
-        price_per_day=price_per_day,
-        total_price=total_amount,
-        booking_status="PENDING",
-        payment_status="PENDING",
-        transport_required=transport_required
-    )
+    try:
+        new_booking = models.StorageBooking(
+            farmer_id=farmer_id,
+            location_id=booking_data.location_id,
+            vendor_id=location.vendor_id,
+            ai_inspection_id=booking_data.ai_inspection_id,
+            crop_type=booking_data.crop_type,
+            quantity_kg=booking_data.quantity_kg,
+            grade=grade_value,
+            duration_days=booking_data.duration_days,
+            start_date=booking_data.start_date,
+            end_date=end_date,
+            price_per_day=price_per_day,
+            total_price=total_amount,
+            booking_status="PENDING",
+            payment_status="PENDING",
+            transport_required=transport_required
+        )
+        
+        db.add(new_booking)
+        db.commit()
+        db.refresh(new_booking)
+        print(f"✅ Booking created successfully: {new_booking.id}")
+    except Exception as e:
+        db.rollback()
+        print(f"❌ ERROR creating booking: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to create booking: {str(e)}")
     
-    db.add(new_booking)
-    db.commit()
-    db.refresh(new_booking)
+    # 🔄 [MARKET] Auto-create snapshot for Market Connect and publish immediately
+    logger.info(f"📸 [MARKET] Creating snapshot for booking: {new_booking.id} (publish immediate)")
+    try:
+        snapshot = market_sync.upsert_snapshot(db, str(new_booking.id), publish=True)
+        if snapshot:
+            logger.info(f"✅ [MARKET] Snapshot created and publish triggered: {new_booking.id}")
+        else:
+            logger.warning(f"⚠️ [MARKET] Snapshot creation returned None for booking: {new_booking.id}")
+    except Exception as e:
+        logger.error(f"❌ [MARKET] Error creating/publishing snapshot: {str(e)}")
     
     return new_booking
 
@@ -343,34 +390,49 @@ def vendor_confirm_booking(
     booking_id: UUID,
     vendor_id: UUID,
     confirmed: bool,
-    rejection_reason: Optional[str] = None
+    rejection_reason: Optional[str] = None,
+    notes: Optional[str] = None
 ) -> models.StorageBooking:
     """
     Vendor confirms or rejects a booking
     """
     booking = db.query(models.StorageBooking).filter(
-        models.StorageBooking.id == booking_id,
-        models.StorageBooking.vendor_id == vendor_id
+        models.StorageBooking.id == booking_id
     ).first()
     
     if not booking:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Booking not found or you don't have permission"
+            detail="Booking not found"
         )
     
-    if booking.status != "PENDING":
+    # Check if this vendor has permission (either booking's vendor or location's vendor)
+    if booking.vendor_id and booking.vendor_id != vendor_id:
+        # Get location's vendor
+        location = db.query(models.StorageLocation).filter(
+            models.StorageLocation.id == booking.location_id
+        ).first()
+        
+        if location and location.vendor_id != vendor_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to confirm this booking"
+            )
+    
+    if booking.booking_status.upper() != "PENDING":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Booking cannot be modified. Current status: {booking.booking_status}"
         )
     
     if confirmed:
-        booking.booking_status = "confirmed"
-        booking.confirmed_at = datetime.now(timezone.utc)
+        booking.booking_status = "CONFIRMED"
+        booking.vendor_confirmed = True
+        booking.vendor_confirmed_at = datetime.now(timezone.utc)
     else:
-        booking.booking_status = "rejected"
-        booking.rejection_reason = rejection_reason
+        booking.booking_status = "REJECTED"
+        booking.vendor_confirmed = False
+        booking.rejection_reason = rejection_reason or notes
     
     db.commit()
     db.refresh(booking)

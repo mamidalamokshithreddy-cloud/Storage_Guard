@@ -22,7 +22,6 @@ from app.routers.soil_sense import soil_sense_router
 from app.routers.admin_routes import admin_router
 from app.routers.auth import authentication_router
 from app.routers.storage_guard import storage_guard_router
-from app.routers.market_integration import market_router
 
     
 logger = logging.getLogger(__name__)
@@ -32,17 +31,29 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Enhanced application lifespan events with multi-LLM support"""
     # Startup
-    logger.info("🚀 Starting Enhanced Pest & Disease Monitoring AI Agent with Multi-LLM")
+    logger.info("Starting Enhanced Pest & Disease Monitoring AI Agent with Multi-LLM")
 
     # Initialize database tables
     try:
         from app.schemas.postgres_base import create_tables
         create_tables()
-        logger.info("✅ Database tables initialized successfully")
+        logger.info("Database tables initialized successfully")
     except Exception as e:
         logger.error(f"❌ Failed to initialize database tables: {e}")
         logger.error("Please ensure the PostgreSQL database exists and is accessible")
         # Don't fail startup completely, but log the error
+    
+    # Initialize Market Connect Snapshot Scheduler
+    # TEMPORARILY DISABLED FOR TESTING
+    logger.info("⏸️ Market Snapshot Scheduler DISABLED for manual testing")
+    # try:
+    #     from app.scheduler import init_market_scheduler
+    #     if init_market_scheduler():
+    #         logger.info("✅ Market Snapshot Scheduler initialized successfully")
+    #     else:
+    #         logger.warning("⚠️ Market Snapshot Scheduler initialization skipped (APScheduler not installed)")
+    # except Exception as e:
+    #     logger.error(f"❌ Failed to initialize Market Snapshot Scheduler: {e}")
 
     # Load ML models on startup
     # try:
@@ -58,7 +69,7 @@ async def lifespan(app: FastAPI):
         from app.services.weather_service import WeatherService
         weather_service = WeatherService()
         await weather_service.initialize_cache()
-        logger.info("✅ Weather service initialized")
+        logger.info("Weather service initialized")
     except Exception as e:
         logger.error(f"❌ Failed to initialize weather service: {e}")
     
@@ -66,7 +77,7 @@ async def lifespan(app: FastAPI):
     try:
         from app.graph.graph import initialize_workflow
         workflow = initialize_workflow()
-        logger.info("✅ Enhanced workflow initialized successfully")
+        logger.info("Enhanced workflow initialized successfully")
     except Exception as e:
         logger.error(f"❌ Failed to initialize enhanced workflow: {e}")
         # pass
@@ -78,7 +89,7 @@ async def lifespan(app: FastAPI):
 
         # Initialize LLM manager
         llm_manager = get_llm_manager()
-        logger.info(f"✅ Multi-LLM manager initialized with {len(llm_manager.enabled_providers)} providers")
+        logger.info(f"Multi-LLM manager initialized with {len(llm_manager.enabled_providers)} providers")
         # Expose via app.state for downstream usage
         try:
             app.state.llm_manager = llm_manager
@@ -87,7 +98,7 @@ async def lifespan(app: FastAPI):
 
         # Initialize response agent
         agent = get_response_agent()
-        logger.info("✅ Intelligent response agent initialized")
+        logger.info("Intelligent response agent initialized")
 
     except Exception as e:
         logger.error(f"❌ Failed to initialize AI pipeline components: {e}")
@@ -96,11 +107,11 @@ async def lifespan(app: FastAPI):
     try:
         from app.agents.storage_guard import StorageGuardAgent
         app.state.storage_guard_agent = StorageGuardAgent()
-        logger.info("✅ Storage Guard Agent initialized successfully")
+        logger.info("Storage Guard Agent initialized successfully")
     except Exception as e:
         app.state.storage_guard_agent = None
-        logger.warning(f"⚠️ Storage Guard Agent initialization failed: {e}")
-        logger.info("📝 Agent will be initialized on first use")
+        logger.warning(f"Storage Guard Agent initialization failed: {e}")
+        logger.info("Agent will be initialized on first use")
     
     # Initialize LLM services if enabled
     if ENABLE_LLM_ANALYSIS:
@@ -109,19 +120,19 @@ async def lifespan(app: FastAPI):
             llm_service = get_llm_service()
             status = llm_service.get_provider_status()
             logger.info(
-                f"✅ Multi-LLM service initialized - {status['total_providers']} providers available, "
+                f"Multi-LLM service initialized - {status['total_providers']} providers available, "
                 f"{len(status['healthy_providers'])} healthy"
             )
         except Exception as e:
-            logger.error(f"❌ Failed to initialize LLM service: {e}")
+            logger.error(f"Failed to initialize LLM service: {e}")
     else:
-        logger.info("ℹ️ LLM analysis disabled - running in CV-only mode")
+        logger.info("LLM analysis disabled - running in CV-only mode")
     
     # Initialize prompt engineering service
     try:
         from app.services.prompt_engineering import get_prompt_engine
         prompt_engine = get_prompt_engine()
-        logger.info("✅ Prompt engineering service initialized")
+        logger.info("Prompt engineering service initialized")
     except Exception as e:
         logger.error(f"❌ Failed to initialize prompt engineering service: {e}")
     
@@ -130,21 +141,29 @@ async def lifespan(app: FastAPI):
         # MongoDB
         from app.connections.mongo_connection import test_connection as test_mongo
         if test_mongo():
-            logger.info("✅ MongoDB connection healthy")
+            logger.info("MongoDB connection healthy")
         else:
-            logger.warning("⚠️ MongoDB connection test failed; check credentials/host")
+            logger.warning("MongoDB connection test failed; check credentials/host")
     except Exception as e:
         logger.error(f"❌ MongoDB init failed: {e}")
     
     # Shutdown
-    logger.info("🛑 Shutting down Enhanced Pest & Disease Monitoring AI Agent")
+    logger.info("Shutting down Enhanced Pest & Disease Monitoring AI Agent")
+    
+    # Shutdown Market Connect Snapshot Scheduler
+    try:
+        from app.scheduler import shutdown_market_scheduler
+        shutdown_market_scheduler()
+        logger.info("✅ Market Snapshot Scheduler shutdown completed")
+    except Exception as e:
+        logger.error(f"❌ Market Snapshot Scheduler shutdown failed: {e}")
     
     # Cleanup LLM service resources
     if ENABLE_LLM_ANALYSIS:
         try:
             from app.services.llm_service import cleanup_llm_service
             await cleanup_llm_service()
-            logger.info("✅ LLM service cleanup completed")
+            logger.info("LLM service cleanup completed")
         except Exception as e:
             logger.error(f"❌ LLM service cleanup failed: {e}")
     
@@ -152,7 +171,7 @@ async def lifespan(app: FastAPI):
     try:
         from app.graph.graph import cleanup_workflow
         await cleanup_workflow()
-        logger.info("✅ Workflow cleanup completed")
+        logger.info("Workflow cleanup completed")
     except Exception as e:
         logger.error(f"❌ Workflow cleanup failed: {e}")
 
@@ -160,7 +179,7 @@ async def lifespan(app: FastAPI):
     try:
         from app.services.weather_service import cleanup_weather_service
         await cleanup_weather_service()
-        logger.info("✅ Weather service cleanup completed")
+        logger.info("Weather service cleanup completed")
     except Exception as e:
         logger.error(f"❌ Weather service cleanup failed: {e}")
 
@@ -176,7 +195,7 @@ async def lifespan(app: FastAPI):
     try:
         from app.models.llm_manager import cleanup_llm_manager
         await cleanup_llm_manager()
-        logger.info("✅ AI pipeline components cleanup completed")
+        logger.info("AI pipeline components cleanup completed")
     except Exception as e:
         logger.error(f"❌ AI pipeline components cleanup failed: {e}")
 
@@ -247,4 +266,3 @@ app.include_router(soil_sense_router, tags=["Soil Testing & Health Card"])
 app.include_router(admin_router, tags=["Admin"])
 app.include_router(authentication_router, tags=["Auth"])
 app.include_router(storage_guard_router, prefix="/storage-guard", tags=["Storage Guard"])
-app.include_router(market_router, tags=["Market Integration"])

@@ -424,7 +424,20 @@ class CertificateService:
         self.db.add(certificate)
         self.db.commit()
         self.db.refresh(certificate)
-        
+
+        # After issuing a storage certificate, update the market snapshot
+        try:
+            # Import here to avoid circular imports at module load
+            from app.services import market_sync
+            try:
+                market_sync.upsert_snapshot(self.db, str(booking.id), publish=True)
+            except Exception as e:
+                # Non-fatal: certificate issuance should succeed even if publish fails
+                print(f"Warning: failed to upsert/publish snapshot after certificate issuance: {e}")
+        except Exception:
+            # Best effort - do not fail certificate creation
+            pass
+
         return certificate
     
     def get_certificate_by_id(self, certificate_id: str) -> Optional[models.StorageCertificate]:

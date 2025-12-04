@@ -59,7 +59,7 @@ RETRY_DELAY = 2  # seconds
 def connect_with_retry():
     for attempt in range(MAX_RETRIES):
         try:
-            print(f"\nConnection attempt {attempt + 1} of {MAX_RETRIES}...")
+            logger.info(f"Connection attempt {attempt + 1} of {MAX_RETRIES}...")
             client = MongoClient(
                 MONGO_URL,
                 serverSelectionTimeoutMS=5000,
@@ -69,57 +69,50 @@ def connect_with_retry():
                 socketTimeoutMS=10000,
             )
             # Test connection
-            print("Testing connection with ping command...")
+            logger.info("Testing connection with ping command...")
             client.admin.command("ping")
-            print(f"✅ Successfully connected to MongoDB on {MONGO_HOST}:{MONGO_PORT}")
             logger.info(f"Successfully connected to MongoDB on {MONGO_HOST}:{MONGO_PORT}")
             return client
         except Exception as e:
-            print(f"❌ Connection attempt {attempt + 1} failed: {str(e)}")
+            logger.error(f"Connection attempt {attempt + 1} failed: {e}")
             if attempt < MAX_RETRIES - 1:
-                print(f"Waiting {RETRY_DELAY} seconds before next attempt...")
+                logger.info(f"Waiting {RETRY_DELAY} seconds before next attempt...")
                 logger.warning(f"Connection attempt {attempt + 1} failed: {e}. Retrying in {RETRY_DELAY} seconds...")
                 time.sleep(RETRY_DELAY)
             else:
                 error_msg = (f"Failed to connect to MongoDB after {MAX_RETRIES} attempts: {e}")
-                print(f"❌ {error_msg}")
                 logger.error(error_msg)
                 raise
 
 
 try:
     # Initialize the client with retry logic
-    print("\nInitializing MongoDB connection...")
+    logger.info("Initializing MongoDB connection...")
     client = connect_with_retry()
 except Exception as e:
     error_msg = f"Failed to establish MongoDB connection: {e}"
-    print(f"❌ {error_msg}")
     logger.error(error_msg)
     raise
 
 
 def test_connection() -> bool:
     try:
-        print("\nTesting MongoDB connection...")
+        logger.info("Testing MongoDB connection...")
         # Ping the server to verify connection is alive
         client.admin.command("ping")
-        success_msg = "✅ Successfully connected to MongoDB"
-        print(success_msg)
+        success_msg = "Successfully connected to MongoDB"
         logger.info(success_msg)
         return True
     except ConnectionFailure as e:
         error_msg = f"MongoDB connection error: {e}"
-        print(f"❌ {error_msg}")
         logger.error(error_msg)
         return False
     except OperationFailure as e:
         error_msg = f"MongoDB authentication error: {e}"
-        print(f"❌ {error_msg}")
         logger.error(error_msg)
         return False
     except Exception as e:
         error_msg = f"Unexpected MongoDB error: {e}"
-        print(f"❌ {error_msg}")
         logger.error(error_msg)
         return False
 

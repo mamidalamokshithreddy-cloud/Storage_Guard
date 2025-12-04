@@ -60,6 +60,7 @@ const MarketIntegrationTab = ({ userId, bookings, apiBase, toast }: MarketIntegr
   const [priceAlerts, setPriceAlerts] = useState<any[]>([]);
   const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
   const [showOffersModal, setShowOffersModal] = useState(false);
+  const [counterOfferForm, setCounterOfferForm] = useState<{[key: string]: string}>({});
   const [mandiPrices, setMandiPrices] = useState<Map<string, MandiPrice>>(new Map());
   const [loadingMandi, setLoadingMandi] = useState(false);
 
@@ -815,6 +816,50 @@ const MarketIntegrationTab = ({ userId, bookings, apiBase, toast }: MarketIntegr
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
+                  {/* Price Comparison Bar */}
+                  <div className="p-3 bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg border">
+                    <div className="flex justify-between items-center mb-2">
+                      <div className="text-center flex-1">
+                        <p className="text-xs text-muted-foreground">Your Target</p>
+                        <p className="font-bold text-sm">₹{selectedListing.target_price}</p>
+                      </div>
+                      <div className="text-center flex-1 border-x px-2">
+                        <p className="text-xs text-muted-foreground">Buyer Offer</p>
+                        <p className="font-bold text-lg text-primary">₹{offer.offered_price}</p>
+                      </div>
+                      <div className="text-center flex-1">
+                        <p className="text-xs text-muted-foreground">Market Rate</p>
+                        <p className="font-bold text-sm text-green-600">
+                          {(() => {
+                            const cropKey = selectedListing.crop_type.toLowerCase();
+                            const mandiPrice = mandiPrices.get(cropKey);
+                            return mandiPrice ? `₹${mandiPrice.current_price.toFixed(0)}` : 'N/A';
+                          })()}
+                        </p>
+                      </div>
+                    </div>
+                    {/* Offer evaluation */}
+                    {(() => {
+                      const cropKey = selectedListing.crop_type.toLowerCase();
+                      const mandiPrice = mandiPrices.get(cropKey);
+                      if (mandiPrice) {
+                        const vsMarket = ((offer.offered_price - mandiPrice.current_price) / mandiPrice.current_price * 100);
+                        const vsTarget = ((offer.offered_price - selectedListing.target_price) / selectedListing.target_price * 100);
+                        return (
+                          <div className="text-xs text-center mt-2 space-y-1">
+                            <p className={vsMarket >= 0 ? 'text-green-600' : 'text-red-600'}>
+                              {vsMarket >= 0 ? '✅' : '⚠️'} {Math.abs(vsMarket).toFixed(1)}% {vsMarket >= 0 ? 'above' : 'below'} market rate
+                            </p>
+                            <p className={vsTarget >= 0 ? 'text-green-600' : 'text-orange-600'}>
+                              {vsTarget >= 0 ? '🎯' : '📊'} {Math.abs(vsTarget).toFixed(1)}% {vsTarget >= 0 ? 'above' : 'below'} your target
+                            </p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
+
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
                       <p className="text-muted-foreground">Offered Price</p>
@@ -839,6 +884,11 @@ const MarketIntegrationTab = ({ userId, bookings, apiBase, toast }: MarketIntegr
                     <p>{offer.pickup_timeline}</p>
                   </div>
 
+                  <div className="text-sm">
+                    <p className="text-muted-foreground">Buyer Contact</p>
+                    <p className="font-medium">{offer.buyer_contact}</p>
+                  </div>
+
                   {offer.notes && (
                     <div className="text-sm">
                       <p className="text-muted-foreground">Notes</p>
@@ -848,27 +898,67 @@ const MarketIntegrationTab = ({ userId, bookings, apiBase, toast }: MarketIntegr
 
                   {/* Action Buttons for Pending Offers */}
                   {offer.offer_status === 'PENDING' && (
-                    <div className="flex gap-2 pt-2">
-                      <Button 
-                        size="sm" 
-                        variant="default"
-                        onClick={() => handleOfferAction(selectedListing._id, offer.offer_id, 'ACCEPT')}
-                        disabled={loading}
-                        className="flex-1"
-                      >
-                        <CheckCircle className="w-4 h-4 mr-2" />
-                        Accept
-                      </Button>
-                      <Button 
-                        size="sm" 
-                        variant="destructive"
-                        onClick={() => handleOfferAction(selectedListing._id, offer.offer_id, 'REJECT')}
-                        disabled={loading}
-                        className="flex-1"
-                      >
-                        <XCircle className="w-4 h-4 mr-2" />
-                        Reject
-                      </Button>
+                    <div className="space-y-2 pt-2">
+                      <div className="flex gap-2">
+                        <Button 
+                          size="sm" 
+                          variant="default"
+                          onClick={() => handleOfferAction(selectedListing._id, offer.offer_id, 'ACCEPT')}
+                          disabled={loading}
+                          className="flex-1 bg-green-600 hover:bg-green-700"
+                        >
+                          <CheckCircle className="w-4 h-4 mr-2" />
+                          Accept Offer
+                        </Button>
+                        <Button 
+                          size="sm" 
+                          variant="destructive"
+                          onClick={() => handleOfferAction(selectedListing._id, offer.offer_id, 'REJECT')}
+                          disabled={loading}
+                          className="flex-1"
+                        >
+                          <XCircle className="w-4 h-4 mr-2" />
+                          Reject
+                        </Button>
+                      </div>
+                      
+                      {/* Counter Offer Section */}
+                      <div className="border-t pt-2">
+                        <p className="text-xs font-semibold mb-2 text-muted-foreground">Or send counter-offer:</p>
+                        <div className="flex gap-2">
+                          <Input
+                            type="number"
+                            placeholder="Counter price/quintal"
+                            value={counterOfferForm[offer.offer_id] || ''}
+                            onChange={(e) => setCounterOfferForm({...counterOfferForm, [offer.offer_id]: e.target.value})}
+                            className="flex-1"
+                          />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              const counterPrice = parseFloat(counterOfferForm[offer.offer_id]);
+                              if (counterPrice && counterPrice > 0) {
+                                handleOfferAction(selectedListing._id, offer.offer_id, 'COUNTER', counterPrice);
+                              } else {
+                                toast({
+                                  title: "Invalid Price",
+                                  description: "Please enter a valid counter price",
+                                  variant: "destructive",
+                                });
+                              }
+                            }}
+                            disabled={loading || !counterOfferForm[offer.offer_id]}
+                          >
+                            Send Counter
+                          </Button>
+                        </div>
+                        {counterOfferForm[offer.offer_id] && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            New total: ₹{(parseFloat(counterOfferForm[offer.offer_id]) * offer.quantity_quintals).toFixed(0)}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   )}
 

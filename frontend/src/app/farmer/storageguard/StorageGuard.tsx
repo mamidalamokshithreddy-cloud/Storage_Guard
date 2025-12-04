@@ -9,7 +9,7 @@ import {
   BarChart3, Clock, CheckCircle, Package2,
   Snowflake, Wheat, MapPin, Users, FileText,
   Camera, Eye, Scan, Gauge,
-  Receipt, FileCheck, Smartphone, Phone
+  Receipt, FileCheck, Smartphone, Phone, Copy
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useToast } from "../ui/use-toast";
@@ -19,14 +19,36 @@ import AgriChatAgent from "../AgriChatAgent";
 import AgriAIPilotSidePeek from "../AgriAIPilotSidePeek";
 import AgentVideoSection from "../AgentVideoSection";
 import StorageLocationMap from "../storageguard/StorageLocationMap";
-import MarketIntegrationTab from "./MarketIntegrationTab";
 
 const StorageGuard = () => {
+    // Job details modal state
+    const [showJobModal, setShowJobModal] = useState(false);
+    const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+    const [jobDetails, setJobDetails] = useState<any>(null);
+    const [jobDetailsLoading, setJobDetailsLoading] = useState(false);
+
+    // Fetch job details when selectedJobId changes
+    useEffect(() => {
+      if (selectedJobId) {
+        setJobDetailsLoading(true);
+        fetch(`${API_BASE}/storage-guard/jobs/${selectedJobId}`)
+          .then(res => res.json())
+          .then(data => {
+            setJobDetails(data.job || null);
+            setJobDetailsLoading(false);
+          })
+          .catch(() => setJobDetailsLoading(false));
+      } else {
+        setJobDetails(null);
+      }
+    }, [selectedJobId]);
   const { toast } = useToast();
   
   // State for API data
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [storageRFQs, setStorageRFQs] = useState<any[]>([]);
+  const [rfqBids, setRfqBids] = useState<{ [key: string]: any[] }>({}); // Store bids for each RFQ
+  const [expandedRfqId, setExpandedRfqId] = useState<string | null>(null); // Track which RFQ is expanded
   const [storageJobs, setStorageJobs] = useState<any[]>([]);
   const [storageVendors, setStorageVendors] = useState<any[]>([]);
   const [storageLocations, setStorageLocations] = useState<any[]>([]);
@@ -36,9 +58,24 @@ const StorageGuard = () => {
   const [qualityData, setQualityData] = useState<any>(null);
   const [iotSensorData, setIotSensorData] = useState<any>(null);
   const [pestDetectionData, setPestDetectionData] = useState<any[]>([]);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [justUpdated, setJustUpdated] = useState<boolean>(false);
+  const [inventory, setInventory] = useState<any[]>([]);
+  const [inventoryLoading, setInventoryLoading] = useState<boolean>(false);
+  const [iotPestRefreshInterval, setIotPestRefreshInterval] = useState<number>(5000); // Auto-refresh IoT/Pest every 5s
+  const [isIotPestRefreshing, setIsIotPestRefreshing] = useState<boolean>(false);
+  const [isDashboardRefreshing, setIsDashboardRefreshing] = useState<boolean>(false);
+  const [dashboardRefreshInterval, setDashboardRefreshInterval] = useState<number>(10000); // Auto-refresh dashboard every 10s
+  const [isMetricsRefreshing, setIsMetricsRefreshing] = useState<boolean>(false);
+  const [metricsRefreshInterval, setMetricsRefreshInterval] = useState<number>(8000); // Auto-refresh metrics every 8s
+  const [locationUtilization, setLocationUtilization] = useState<{ [key: string]: number }>({}); // Real utilization per location
   const [loading, setLoading] = useState(true);
   const [certificates, setCertificates] = useState<any[]>([]);
   const [loadingCertificates, setLoadingCertificates] = useState(false);
+  const [showInventoryDebug, setShowInventoryDebug] = useState<boolean>(false);
+  const [selectedCertificate, setSelectedCertificate] = useState<any>(null);
+  const [showCertificateModal, setShowCertificateModal] = useState(false);
 
   // New booking system state
   const [showBookingModal, setShowBookingModal] = useState(false);
@@ -107,33 +144,21 @@ const StorageGuard = () => {
     poor: 'పేద / Poor'
   };
 
-  // Utility function to get user ID from various sources
+  // Utility function to get user ID using tab-isolated storage
   const getUserId = (): string | null => {
-    // Try multiple possible keys
-    let userId = localStorage.getItem('user_id') || 
-                 localStorage.getItem('userId') || 
-                 sessionStorage.getItem('user_id') ||
-                 sessionStorage.getItem('userId');
-    
-    // If still no user ID, try to decode from token
-    if (!userId) {
-      const token = localStorage.getItem('access_token');
-      if (token) {
-        try {
-          const base64Url = token.split('.')[1];
-          const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-          const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-          }).join(''));
-          const payload = JSON.parse(jsonPayload);
-          userId = payload.sub || payload.user_id || payload.id;
-        } catch (e) {
-          console.error('Error decoding token:', e);
-        }
+    try {
+      // Use tab-isolated storage from auth library
+      // This ensures each tab keeps its own session
+      const authUserStr = sessionStorage.getItem('user__' + (sessionStorage.getItem('_agri_tab_id') || ''));
+      if (authUserStr) {
+        const user = JSON.parse(authUserStr);
+        return user.id || user.userId || user.user_id;
       }
+      // No window.getTabStorage in this context; rely on sessionStorage only for tab isolation
+    } catch (e) {
+      console.error('Tab-isolated userId fetch error:', e);
     }
-    
-    return userId;
+    return null;
   };
 
 
@@ -293,8 +318,8 @@ const StorageGuard = () => {
             duration: 8000,
           });
           
-          // Refetch quality analysis data
-          const qualityRes = await fetch(`${API_BASE}/storage-guard/quality-analysis`);
+          // Refetch quality analysis data (per farmer)
+          const qualityRes = await fetch(`${API_BASE}/storage-guard/quality-analysis?farmer_id=${userId}`);
           if (qualityRes.ok) {
             const qualityDataResponse = await qualityRes.json();
             setQualityData(qualityDataResponse);
@@ -531,6 +556,7 @@ const StorageGuard = () => {
         fetchMyBookings();
         fetchFarmerDashboard();
         fetchTransportData(); // 🚚 Refresh transport fleet after new booking
+        fetchLocationUtilization(); // 🏢 Update facility utilization in real-time on booking creation
       } else {
         const error = await response.json();
         toast({
@@ -597,8 +623,9 @@ const StorageGuard = () => {
 
   const fetchFarmerDashboard = async () => {
     try {
+      setIsDashboardRefreshing(true);
       const userId = getUserId();
-      console.log('🔍 Fetching dashboard for farmer:', userId);
+      console.log('🔄 [auto] Fetching dashboard for farmer:', userId);
       if (!userId) {
         console.error('❌ No user ID found! Check localStorage/sessionStorage');
         return;
@@ -606,13 +633,55 @@ const StorageGuard = () => {
       const response = await fetch(`${API_BASE}/storage-guard/farmer-dashboard?farmer_id=${userId}`);
       if (response.ok) {
         const data = await response.json();
-        console.log('✅ Dashboard data received:', data.summary);
+        console.log('✅ [auto] Dashboard data received:', data.summary);
         setFarmerDashboard(data);
       } else {
         console.error('❌ Dashboard fetch failed:', response.status);
       }
     } catch (error) {
       console.error('Error fetching dashboard:', error);
+    } finally {
+      setIsDashboardRefreshing(false);
+    }
+  };
+
+  // Fetch storage metrics for real-time dashboard
+  const fetchStorageMetrics = async () => {
+    try {
+      setIsMetricsRefreshing(true);
+      const userId = getUserId();
+      if (!userId) return;
+      
+      const response = await fetch(`${API_BASE}/storage-guard/metrics?farmer_id=${userId}`);
+      if (response.ok) {
+        const data = await response.json();
+        console.log('🔄 [auto] Storage metrics received:', data);
+        setStorageMetrics(data.metrics || []);
+      }
+    } catch (error) {
+      console.error('Error fetching storage metrics:', error);
+    } finally {
+      setIsMetricsRefreshing(false);
+    }
+  };
+
+  // Fetch real location utilization based on actual bookings (triggered on booking creation)
+  const fetchLocationUtilization = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/storage-guard/location-utilization`);
+      if (response.ok) {
+        const data = await response.json();
+        console.log('🏢 [REAL-TIME] Location utilization updated:', data);
+        const utilizationMap: { [key: string]: number } = {};
+        if (data.locations) {
+          data.locations.forEach((loc: any) => {
+            utilizationMap[loc.location_id] = loc.utilization_percent || 0;
+          });
+        }
+        setLocationUtilization(utilizationMap);
+      }
+    } catch (error) {
+      console.error('Error fetching location utilization:', error);
     }
   };
 
@@ -715,6 +784,47 @@ const StorageGuard = () => {
       toast({
         title: "Error",
         description: "Network error while scheduling inspection",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // View certificate details
+  const handleViewCertificate = async (certificateId: string) => {
+    console.log('📜 Viewing certificate:', certificateId);
+    
+    if (!certificateId) {
+      toast({
+        title: "Error",
+        description: "Certificate ID is missing",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE}/storage-guard/certificates/${certificateId}`);
+      console.log('Certificate response status:', response.status);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Certificate data:', data);
+        setSelectedCertificate(data.certificate || data);
+        setShowCertificateModal(true);
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('Certificate fetch error:', errorData);
+        toast({
+          title: "Error",
+          description: errorData.detail || "Could not load certificate",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching certificate:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load certificate details",
         variant: "destructive",
       });
     }
@@ -836,93 +946,309 @@ const StorageGuard = () => {
     input.click();
   };
 
-  // Fetch storage data from integrated APIs
-  useEffect(() => {
-    const fetchStorageData = async () => {
-      try {
-        setLoading(true);
-        
-        const [dashboardRes, rfqsRes, jobsRes, vendorsRes, locationsRes, metricsRes, transportRes, proofRes, qualityRes, iotRes, pestRes] = await Promise.all([
-          fetch(`${API_BASE}/storage-guard/dashboard`),
-          fetch(`${API_BASE}/storage-guard/rfqs`),
-          fetch(`${API_BASE}/storage-guard/jobs`),
-          fetch(`${API_BASE}/storage-guard/vendors`),
-          fetch(`${API_BASE}/storage-guard/locations`),
-          fetch(`${API_BASE}/storage-guard/metrics`),
-          fetch(`${API_BASE}/storage-guard/transport`),
-          fetch(`${API_BASE}/storage-guard/proof-of-delivery`),
-          fetch(`${API_BASE}/storage-guard/quality-analysis`),
-          fetch(`${API_BASE}/storage-guard/iot-sensors`),
-          fetch(`${API_BASE}/storage-guard/pest-detection`)
-        ]);
-
-        if (dashboardRes.ok) {
-          const dashboardData = await dashboardRes.json();
-          setDashboardData(dashboardData);
-        }
-
-        if (rfqsRes.ok) {
-          const rfqsData = await rfqsRes.json();
-          setStorageRFQs(rfqsData.rfqs || []);
-        }
-
-        if (jobsRes.ok) {
-          const jobsData = await jobsRes.json();
-          setStorageJobs(jobsData.jobs || []);
-        }
-
-        if (vendorsRes.ok) {
-          const vendorsData = await vendorsRes.json();
-          setStorageVendors(vendorsData.vendors || []);
-        }
-
-        if (locationsRes.ok) {
-          const locationsData = await locationsRes.json();
-          setStorageLocations(locationsData.locations || []);
-        }
-
-        if (metricsRes.ok) {
-          const metricsData = await metricsRes.json();
-          setStorageMetrics(metricsData.metrics || []);
-        }
-
-        if (transportRes.ok) {
-          const transportDataResponse = await transportRes.json();
-          setTransportData(transportDataResponse);
-        }
-
-        if (proofRes.ok) {
-          const proofDataResponse = await proofRes.json();
-          setProofOfDeliveryData(proofDataResponse);
-        }
-
-        if (qualityRes.ok) {
-          const qualityDataResponse = await qualityRes.json();
-          setQualityData(qualityDataResponse);
-        }
-
-        if (iotRes.ok) {
-          const iotDataResponse = await iotRes.json();
-          setIotSensorData(iotDataResponse);
-        }
-
-        if (pestRes.ok) {
-          const pestDataResponse = await pestRes.json();
-          setPestDetectionData(pestDataResponse.detections || []);
-        }
-
-      } catch (error) {
-        console.error('Error fetching storage data:', error);
-      } finally {
+  // Fetch storage data from integrated APIs (shared function)
+  const fetchStorageData = async (opts: { background?: boolean } = {}) => {
+    try {
+      if (opts.background) setIsRefreshing(true);
+      else setLoading(true);
+      setInventoryLoading(true);
+      
+      const userId = getUserId();
+      console.log('🔍 [fetchStorageData] userId:', userId);
+      if (!userId) {
+        console.warn('⚠️ [fetchStorageData] userId is null/empty, skipping fetch');
         setLoading(false);
+        setInventoryLoading(false);
+        return;
       }
-    };
+      const [dashboardRes, rfqsRes, jobsRes, vendorsRes, locationsRes, metricsRes, transportRes, proofRes, qualityRes, iotRes, pestRes, inventoryRes] = await Promise.all([
+        fetch(`${API_BASE}/storage-guard/dashboard`),
+        fetch(`${API_BASE}/storage-guard/rfqs`),
+        fetch(`${API_BASE}/storage-guard/jobs?farmer_id=${userId}`),
+        fetch(`${API_BASE}/storage-guard/vendors`),
+        fetch(`${API_BASE}/storage-guard/locations`),
+        fetch(`${API_BASE}/storage-guard/metrics`),
+        fetch(`${API_BASE}/storage-guard/transport`),
+        fetch(`${API_BASE}/storage-guard/proof-of-delivery`),
+        fetch(`${API_BASE}/storage-guard/quality-analysis?farmer_id=${userId}`),
+        fetch(`${API_BASE}/storage-guard/iot-sensors`),
+        fetch(`${API_BASE}/storage-guard/pest-detection`),
+        fetch(`${API_BASE}/storage-guard/inventory?farmer_id=${userId}`)
+      ]);
 
-    fetchStorageData();
-    fetchMyBookings();
-    fetchFarmerDashboard();
-    fetchScheduledInspections();
-  }, [API_BASE]);
+      if (dashboardRes.ok) {
+        const dashboardData = await dashboardRes.json();
+        setDashboardData(dashboardData);
+      }
+
+      if (rfqsRes.ok) {
+        const rfqsData = await rfqsRes.json();
+        const rfqs = rfqsData.rfqs || [];
+        setStorageRFQs(rfqs);
+        
+        // Fetch bids for each open RFQ
+        const bidsMap: { [key: string]: any[] } = {};
+        for (const rfq of rfqs) {
+          if (rfq.status === 'OPEN') {
+            try {
+              const bidsResponse = await fetch(`${API_BASE}/storage-guard/rfqs/${rfq.id}/bids`);
+              if (bidsResponse.ok) {
+                const bidsData = await bidsResponse.json();
+                bidsMap[rfq.id] = bidsData.bids || [];
+                console.log(`✅ Fetched ${bidsData.bids?.length || 0} bids for RFQ ${rfq.crop} (${rfq.id})`);
+                if (bidsData.bids && bidsData.bids.length > 0) {
+                  const firstBid = bidsData.bids[0];
+                  console.log(`   🔍 First bid structure:`, {
+                    hasVendor: !!firstBid.vendor,
+                    hasLocation: !!firstBid.location,
+                    vendorName: firstBid.vendor?.business_name || firstBid.vendor?.full_name,
+                    locationName: firstBid.location?.name,
+                    capacity: firstBid.location?.capacity_text
+                  });
+                }
+              }
+            } catch (err) {
+              console.error(`Error fetching bids for RFQ ${rfq.id}:`, err);
+            }
+          }
+        }
+        console.log('📊 Total RFQs with bids:', Object.keys(bidsMap).length);
+        setRfqBids(bidsMap);
+      }
+
+      if (jobsRes.ok) {
+        const jobsData = await jobsRes.json();
+        setStorageJobs(jobsData.jobs || []);
+      }
+
+      if (vendorsRes.ok) {
+        const vendorsData = await vendorsRes.json();
+        setStorageVendors(vendorsData.vendors || []);
+      }
+
+      if (locationsRes.ok) {
+        const locationsData = await locationsRes.json();
+        setStorageLocations(locationsData.locations || []);
+      }
+
+      if (metricsRes.ok) {
+        const metricsData = await metricsRes.json();
+        setStorageMetrics(metricsData.metrics || []);
+      }
+
+      if (transportRes.ok) {
+        const transportDataResponse = await transportRes.json();
+        setTransportData(transportDataResponse);
+      }
+
+      if (proofRes.ok) {
+        const proofDataResponse = await proofRes.json();
+        setProofOfDeliveryData(proofDataResponse);
+      }
+
+      if (qualityRes.ok) {
+        const qualityDataResponse = await qualityRes.json();
+        setQualityData(qualityDataResponse);
+      }
+
+      if (iotRes.ok) {
+        const iotDataResponse = await iotRes.json();
+        console.log('🔍 [API] IoT Sensors Response:', iotDataResponse);
+        setIotSensorData(iotDataResponse);
+      }
+
+      if (pestRes.ok) {
+        const pestDataResponse = await pestRes.json();
+        console.log('🔍 [API] Pest Detection Response:', pestDataResponse);
+        setPestDetectionData(pestDataResponse.detections || []);
+      }
+
+      if (inventoryRes && inventoryRes.ok) {
+        const inventoryData = await inventoryRes.json();
+        console.log('🔍 [API] Inventory Response (first 3 items):', inventoryData.inventory?.slice(0, 3));
+        console.log('🔍 [API] First inventory item full structure:', JSON.stringify(inventoryData.inventory?.[0], null, 2));
+        console.log('🔍 [API] Calling setInventory with count:', inventoryData.inventory?.length);
+        setInventory(inventoryData.inventory || []);
+      }
+
+      // mark last updated time for UI
+      setLastUpdated(new Date());
+      // briefly mark UI as updated for optimistic highlight
+      setJustUpdated(true);
+      setTimeout(() => setJustUpdated(false), 900);
+
+    } catch (error) {
+      console.error('Error fetching storage data:', error);
+    } finally {
+      setLoading(false);
+      setInventoryLoading(false);
+      setIsRefreshing(false);
+    }
+  };
+
+  // Fetch only IoT and Pest data (for auto-refresh of sensor values)
+  const fetchIotPestOnly = async () => {
+    setIsIotPestRefreshing(true);
+    try {
+      const [iotRes, pestRes] = await Promise.all([
+        fetch(`${API_BASE}/storage-guard/iot-sensors`),
+        fetch(`${API_BASE}/storage-guard/pest-detection`)
+      ]);
+
+      if (iotRes.ok) {
+        const iotDataResponse = await iotRes.json();
+        console.log('🔄 [auto] /iot-sensors:', iotDataResponse);
+        setIotSensorData(iotDataResponse);
+        // Merge iot sensors into inventory by location_id so inventory cards update live
+        try {
+          const sensorsArray = iotDataResponse.sensors || [];
+          const byLocation: { [key: string]: any[] } = {};
+          sensorsArray.forEach((s: any) => {
+            const lid = s.location_id || s.location || null;
+            if (!lid) return;
+            if (!byLocation[lid]) byLocation[lid] = [];
+            byLocation[lid].push({
+              sensor_type: s.sensor_type || s.sensorType || s.sensor_type,
+              value: s.last_value ?? s.value ?? s.reading ?? null,
+              unit: s.unit || s.reading_unit || '',
+              reading_time: s.last_reading || s.reading_time || null,
+              status: s.status || 'active'
+            });
+          });
+
+          if (Object.keys(byLocation).length > 0) {
+            setInventory((prev: any[]) => prev.map(item => {
+              const loc = item.location_id || item.location || null;
+              if (loc && byLocation[loc]) {
+                return { ...item, iot_latest: byLocation[loc] };
+              }
+              return item;
+            }));
+          }
+        } catch (err) {
+          console.warn('Failed to merge IoT sensors into inventory:', err);
+        }
+      }
+
+      if (pestRes.ok) {
+        const pestDataResponse = await pestRes.json();
+        console.log('🔄 [auto] /pest-detection:', pestDataResponse);
+        setPestDetectionData(pestDataResponse.pest_detections || pestDataResponse.pest_detections || pestDataResponse.detections || []);
+        // Merge pest detection into inventory by location_id (latest per location)
+        try {
+          const pests = pestDataResponse.pest_detections || pestDataResponse.detections || [];
+          const pestByLoc: { [key: string]: any } = {};
+          pests.forEach((p: any) => {
+            const lid = p.location_id || (p.location_details && p.location_details.id) || null;
+            if (!lid) return;
+            // keep latest by detected_at
+            const existing = pestByLoc[lid];
+            const tExisting = existing && existing.detected_at ? new Date(existing.detected_at).getTime() : 0;
+            const tNew = p.detected_at ? new Date(p.detected_at).getTime() : 0;
+            if (!existing || tNew >= tExisting) {
+              pestByLoc[lid] = {
+                pest_type: p.pest_type || p.type || null,
+                severity: p.severity_level || p.severity || null,
+                confidence: p.confidence_score || p.confidence || null,
+                detected_at: p.detected_at || null
+              };
+            }
+          });
+
+          if (Object.keys(pestByLoc).length > 0) {
+            setInventory((prev: any[]) => prev.map(item => {
+              const loc = item.location_id || item.location || null;
+              if (loc && pestByLoc[loc]) {
+                return { ...item, pest_latest: pestByLoc[loc] };
+              }
+              return item;
+            }));
+          }
+        } catch (err) {
+          console.warn('Failed to merge pest detections into inventory:', err);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching IoT/Pest data:', error);
+    } finally {
+      setIsIotPestRefreshing(false);
+    }
+  };
+
+  // Fetch only inventory (manual refresh) without touching IoT/Pest state
+  const fetchInventoryOnly = async () => {
+    try {
+      setIsRefreshing(true);
+      setInventoryLoading(true);
+      const userId = getUserId();
+      const inventoryRes = await fetch(`${API_BASE}/storage-guard/inventory?farmer_id=${userId}`);
+      if (inventoryRes && inventoryRes.ok) {
+        const inventoryData = await inventoryRes.json();
+        console.log('🔍 [API] Manual Inventory Response (first 3 items):', inventoryData.inventory?.slice(0, 3));
+        setInventory(inventoryData.inventory || []);
+      } else {
+        console.warn('Manual inventory fetch failed', inventoryRes && inventoryRes.status);
+      }
+      setLastUpdated(new Date());
+      setJustUpdated(true);
+      setTimeout(() => setJustUpdated(false), 900);
+    } catch (error) {
+      console.error('Error fetching inventory only:', error);
+    } finally {
+      setInventoryLoading(false);
+      setIsRefreshing(false);
+    }
+  };
+
+  // Debug: log inventory state changes
+  useEffect(() => {
+    console.log('🔍 [STATE] inventory array changed. Count:', inventory.length);
+    if (inventory.length > 0) {
+      console.log('🔍 [STATE] First item:', inventory[0]);
+      const carrots = inventory.find((item: any) => item.crop_type === 'Carrots');
+      console.log('🔍 [STATE] Carrots booking found?', carrots ? 'YES' : 'NO');
+      if (carrots) {
+        console.log('🔍 [STATE] Carrots details:', carrots);
+      }
+    }
+  }, [inventory]);
+
+  // Re-fetch data when userId becomes available
+  useEffect(() => {
+    const userId = getUserId();
+    console.log('🔍 [useEffect userId watcher] userId changed:', userId);
+    if (userId) {
+      fetchStorageData();
+      fetchMyBookings();
+      fetchFarmerDashboard();
+      fetchScheduledInspections();
+      fetchStorageMetrics();
+      fetchLocationUtilization();
+    }
+  }, []); // Run once on mount; getUserId should be stable after first check
+
+  useEffect(() => {
+    // Auto-refresh IoT/Pest data every 5 seconds (only sensors & pest, not entire screen)
+    const iotPestInterval = setInterval(() => {
+      fetchIotPestOnly();
+    }, iotPestRefreshInterval);
+
+    // Auto-refresh farmer dashboard every 10 seconds (metrics, bookings summary)
+    const dashboardInterval = setInterval(() => {
+      fetchFarmerDashboard();
+    }, dashboardRefreshInterval);
+
+    // Auto-refresh storage metrics every 8 seconds (performance dashboard)
+    const metricsInterval = setInterval(() => {
+      fetchStorageMetrics();
+    }, metricsRefreshInterval);
+
+    return () => {
+      clearInterval(iotPestInterval);
+      clearInterval(dashboardInterval);
+      clearInterval(metricsInterval);
+    };
+  }, [API_BASE, iotPestRefreshInterval, dashboardRefreshInterval, metricsRefreshInterval]);
 
   const storageServices = [
     {
@@ -979,6 +1305,7 @@ const StorageGuard = () => {
     pestDetection: pestDetectionData.length > 0 ? pestDetectionData.map(detection => ({
       pest: detection.pest_type || "Unknown",
       confidence: detection.confidence_score || 0,
+      severity: detection.severity || 'low',
       location: detection.location || "Unknown",
       action: detection.severity === "critical" ? "Immediate action required" : 
              detection.severity === "high" ? "Treatment scheduled" : "Monitoring"
@@ -987,13 +1314,71 @@ const StorageGuard = () => {
     ]
   };
 
-  // IoT sensor data from API with fallback
-  const sensorDisplayData = iotSensorData?.sensors || {
-    temperature: { current: "Loading...", range: "--", status: "fetching" },
-    humidity: { current: "Loading...", range: "--", status: "fetching" },
-    co2: { current: "Loading...", range: "--", status: "fetching" },
-    ethylene: { current: "Loading...", range: "--", status: "fetching" }
-  };
+  // IoT sensor data selection: prefer live `iotSensorData` (auto-refreshed), fall back to `inventory` values
+  const sensorDisplayData = (() => {
+    // Prefer live IoT API data when available
+    try {
+      const live = iotSensorData;
+      if (live) {
+        // Common shapes: { sensors: [...] } or an array directly
+        if (Array.isArray(live.sensors) && live.sensors.length > 0) {
+          console.log('✅ [sensorDisplayData] Using live iotSensorData.sensors (API):', live.sensors);
+          return live.sensors;
+        }
+        if (Array.isArray(live) && live.length > 0) {
+          console.log('✅ [sensorDisplayData] Using live iotSensorData (array):', live);
+          return live;
+        }
+        // Sometimes API returns a mapping like { last_value: {...}, sensors: {...} }
+        if (live.last_value && typeof live.last_value === 'object') {
+          const arr = Object.keys(live.last_value).map(k => ({ sensor_type: k, value: live.last_value[k] }));
+          if (arr.length > 0) {
+            console.log('✅ [sensorDisplayData] Using live iotSensorData.last_value (mapped):', arr);
+            return arr;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('⚠️ [sensorDisplayData] Error reading live iotSensorData:', err);
+    }
+
+    // If no live data, derive from the first inventory item (booking) as before
+    if (Array.isArray(inventory) && inventory.length > 0) {
+      const firstItem = inventory[0];
+
+      if (Array.isArray(firstItem.iot_sensors) && firstItem.iot_sensors.length > 0) {
+        console.log('✅ [sensorDisplayData] Using inventory[0].iot_sensors (array):', firstItem.iot_sensors);
+        return firstItem.iot_sensors;
+      }
+      if (Array.isArray(firstItem.iot_latest) && firstItem.iot_latest.length > 0) {
+        console.log('✅ [sensorDisplayData] Using inventory[0].iot_latest (array):', firstItem.iot_latest);
+        return firstItem.iot_latest;
+      }
+      if (Array.isArray(firstItem.sensor_reading) && firstItem.sensor_reading.length > 0) {
+        const result = firstItem.sensor_reading.map((s: any) => ({ ...s, location: firstItem.location_name || firstItem.location || '--' }));
+        console.log('✅ [sensorDisplayData] Using inventory[0].sensor_reading (array):', result);
+        return result;
+      }
+
+      const sensorKeys = ['temperature', 'humidity', 'moisture', 'co2', 'pressure', 'light'];
+      const extractedSensors = sensorKeys
+        .filter(k => firstItem[k] !== undefined && firstItem[k] !== null)
+        .map(k => ({
+          sensor_type: k,
+          value: firstItem[k],
+          unit: firstItem[`${k}_unit`] || '',
+          location: firstItem.location_name || firstItem.location || '--'
+        }));
+      if (extractedSensors.length > 0) {
+        console.log('✅ [sensorDisplayData] Using inventory[0] individual sensor fields:', extractedSensors);
+        return extractedSensors;
+      }
+    }
+
+    // Default empty array (no data found)
+    console.log('⚠️ [sensorDisplayData] No sensor data found - returning empty array');
+    return [];
+  })();
 
   // Vendor services now from API data with proper categorization
   const vendorServices = storageVendors.length > 0 ? [
@@ -1100,7 +1485,7 @@ const StorageGuard = () => {
           <Card className="overflow-hidden">
             <div className="h-48 overflow-hidden">
               <img 
-                src="/carriers.jpg"
+                src="/transport nd logistics.jpg"
                 alt="Agricultural Carriers" 
                 className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
               />
@@ -1142,16 +1527,18 @@ const StorageGuard = () => {
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="quality-analysis" className="w-full">
-              <TabsList className="grid grid-cols-8 w-full">
+              <TabsList className="grid grid-cols-8 w-full gap-0">
                 <TabsTrigger value="quality-analysis">Quality Analysis</TabsTrigger>
                 <TabsTrigger value="pest-detection">Pest Detection</TabsTrigger>
                 <TabsTrigger value="iot-sensors">IoT Sensors</TabsTrigger>
                 <TabsTrigger value="my-bookings">My Bookings</TabsTrigger>
-                <TabsTrigger value="market">🛒 Market</TabsTrigger>
                 <TabsTrigger value="certificates">📜 Certificates</TabsTrigger>
                 <TabsTrigger value="vendor-services">Vendor Services</TabsTrigger>
+                <TabsTrigger value="inventory">Inventory</TabsTrigger>
                 <TabsTrigger value="rfqs-jobs">RFQs & Jobs</TabsTrigger>
               </TabsList>
+
+              
 
               <TabsContent value="quality-analysis" className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1229,46 +1616,165 @@ const StorageGuard = () => {
 
               <TabsContent value="pest-detection" className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {cvDetectionData.pestDetection.map((pest, index) => (
-                    <div key={index} className="p-4 border border-border rounded-lg bg-destructive/10">
-                      <div className="flex justify-between items-start mb-2">
-                        <h3 className="font-semibold flex items-center gap-2">
-                          <Scan className="w-4 h-4 text-destructive" />
-                          {pest.pest}
-                        </h3>
-                        <Badge variant="destructive">{pest.confidence}% confidence</Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground mb-2">Location: {pest.location}</p>
-                      <p className="text-sm font-medium text-destructive">{pest.action}</p>
+                  {loading ? (
+                    <div className="col-span-1 md:col-span-2 text-center py-8">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                      <p className="mt-2 text-muted-foreground">Fetching pest detections...</p>
                     </div>
-                  ))}
+                  ) : pestDetectionData.length === 0 ? (
+                    <div className="col-span-1 md:col-span-2 p-4 border border-border rounded-lg bg-muted/10 text-center">
+                      <p className="font-medium">No pest detections found</p>
+                      <p className="text-sm text-muted-foreground">Current sensors are within safe thresholds</p>
+                    </div>
+                  ) : (
+                    pestDetectionData.map((detection: any, index: number) => {
+                      const severity = (detection.severity || 'low').toString().toLowerCase();
+                      const badgeVariant = severity === 'critical' || severity === 'high' ? 'destructive' : severity === 'medium' ? 'warning' : 'default';
+                      const textClass = severity === 'critical' || severity === 'high' ? 'text-destructive' : severity === 'medium' ? 'text-warning' : 'text-success';
+                      const pestName = detection.pest_type || detection.pest || 'Unknown';
+                      const confidence = detection.confidence_score ?? detection.confidence ?? 0;
+                      const location = detection.location || '--';
+                      const action = severity === 'critical' ? 'Immediate action required' : severity === 'high' ? 'Treatment scheduled' : 'Monitoring';
+                      return (
+                        <div key={index} className={`p-4 border border-border rounded-lg ${severity === 'critical' || severity === 'high' ? 'bg-destructive/10' : severity === 'medium' ? 'bg-yellow-50' : 'bg-success/5'} hover:shadow-md transition-shadow`}>
+                          <div className="flex justify-between items-start mb-2">
+                            <h3 className="font-semibold flex items-center gap-2">
+                              <Scan className={`w-4 h-4 ${severity === 'critical' || severity === 'high' ? 'text-destructive' : severity === 'medium' ? 'text-warning' : 'text-success'}`} />
+                              {pestName}
+                            </h3>
+                            <Badge variant={badgeVariant}>{confidence}% confidence</Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground mb-2">Location: {location}</p>
+                          <p className={`text-sm font-medium ${textClass}`}>{action}</p>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </TabsContent>
 
               <TabsContent value="iot-sensors" className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  {Object.entries(sensorDisplayData).map(([sensor, data]: [string, any]) => (
-                    <div key={sensor} className="p-4 border border-border rounded-lg bg-gradient-to-br from-background to-muted/20">
-                      <h3 className="font-semibold mb-2 capitalize flex items-center gap-2">
-                        <Gauge className="w-4 h-4 text-primary" />
-                        {sensor}
-                      </h3>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span>Current:</span>
-                          <span className="font-medium">{data.current}</span>
+                  {(() => {
+                    console.log('🔍 [IoT Sensors Render] sensorDisplayData:', sensorDisplayData);
+                    
+                    if (loading) {
+                      return (
+                        <div className="col-span-1 md:col-span-2 lg:col-span-4 text-center py-8">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                          <p className="mt-2 text-muted-foreground">Fetching IoT sensor data...</p>
                         </div>
-                        <div className="flex justify-between">
-                          <span>Range:</span>
-                          <span className="font-medium">{data.range}</span>
-                        </div>
-                        <Badge variant={data.status === 'optimal' ? 'default' : 'secondary'} 
-                               className={data.status === 'optimal' ? 'bg-success text-success-foreground' : 'bg-warning text-warning-foreground'}>
-                          {data.status}
-                        </Badge>
+                      );
+                    }
+
+                    // Handle array data
+                    if (Array.isArray(sensorDisplayData)) {
+                      if (sensorDisplayData.length === 0) {
+                        return (
+                          <div className="col-span-1 md:col-span-2 lg:col-span-4 p-4 border border-border rounded-lg bg-muted/10 text-center">
+                            <p className="font-medium">No IoT sensor data available</p>
+                            <p className="text-sm text-muted-foreground">Sensors may be inactive or not configured</p>
+                          </div>
+                        );
+                      }
+
+                      // Render each sensor in the array
+                      return sensorDisplayData.map((s: any, idx: number) => {
+                        const name = s.sensor_type || s.name || `sensor-${idx}`;
+                        
+                        // Extract current value: prioritize 'value', then 'current', then 'reading', then 'last_value'
+                        let current = s.value ?? s.current ?? s.reading ?? s.last_value ?? '--';
+                        if (typeof current === 'number') current = current.toFixed(2);
+                        
+                        // Extract range: try range, or min-max, or unit if available
+                        const range = s.range ?? (s.min || s.max ? `${s.min ?? '--'} - ${s.max ?? '--'}` : s.unit ?? '--');
+                        
+                        // Extract status: try status, state, active flag
+                        const statusVal = s.status ?? s.state ?? (s.active ? 'active' : 'inactive') ?? 'active';
+                        const status = statusVal.toString();
+                        const badgeVariant = status.toLowerCase() === 'active' ? 'default' : 'secondary';
+                        
+                        // Add location if present
+                        const location = s.location ? ` (${s.location})` : '';
+                        
+                        console.log(`📊 [IoT Render ${name}] current=${current}, range=${range}, status=${status}`);
+                        
+                        return (
+                          <div key={idx} className={`p-4 border border-border rounded-lg bg-gradient-to-br from-background to-muted/20 shadow-sm hover:shadow-md transition-shadow ${justUpdated ? 'ring-2 ring-primary/40 animate-pulse' : ''}`}>
+                            <h3 className="font-semibold mb-2 capitalize flex items-center gap-2">
+                              <Gauge className="w-4 h-4 text-primary" />
+                              {name}{location && <span className="text-xs text-muted-foreground normal-case">{location}</span>}
+                            </h3>
+                            <div className="space-y-2 text-sm">
+                              <div className="flex justify-between">
+                                <span>Current:</span>
+                                <span className="font-medium">{current}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Range:</span>
+                                <span className="font-medium">{range}</span>
+                              </div>
+                              <Badge variant={badgeVariant} className={status.toLowerCase() === 'active' ? 'bg-success text-success-foreground' : 'bg-muted text-muted-foreground'}>
+                                {status}
+                              </Badge>
+                            </div>
+                          </div>
+                        );
+                      });
+                    }
+
+                    // Handle object data
+                    if (typeof sensorDisplayData === 'object' && sensorDisplayData !== null && !Array.isArray(sensorDisplayData)) {
+                      const entries = Object.entries(sensorDisplayData);
+                      if (entries.length === 0) {
+                        return (
+                          <div className="col-span-1 md:col-span-2 lg:col-span-4 p-4 border border-border rounded-lg bg-muted/10 text-center">
+                            <p className="font-medium">No IoT sensor data available</p>
+                          </div>
+                        );
+                      }
+                      
+                      return entries.map(([key, val]: [string, any], idx: number) => {
+                        const s = typeof val === 'object' ? val : { value: val };
+                        const name = key;
+                        let current = s.value ?? s.current ?? s.reading ?? '--';
+                        if (typeof current === 'number') current = current.toFixed(2);
+                        const range = s.range ?? s.unit ?? '--';
+                        const status = s.status ?? 'active';
+                        const badgeVariant = status.toLowerCase() === 'active' ? 'default' : 'secondary';
+                        
+                        return (
+                          <div key={idx} className={`p-4 border border-border rounded-lg bg-gradient-to-br from-background to-muted/20 shadow-sm hover:shadow-md transition-shadow ${justUpdated ? 'ring-2 ring-primary/40 animate-pulse' : ''}`}>
+                            <h3 className="font-semibold mb-2 capitalize flex items-center gap-2">
+                              <Gauge className="w-4 h-4 text-primary" />
+                              {name}
+                            </h3>
+                            <div className="space-y-2 text-sm">
+                              <div className="flex justify-between">
+                                <span>Current:</span>
+                                <span className="font-medium">{current}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Range:</span>
+                                <span className="font-medium">{range}</span>
+                              </div>
+                              <Badge variant={badgeVariant} className={status.toLowerCase() === 'active' ? 'bg-success text-success-foreground' : 'bg-muted text-muted-foreground'}>
+                                {status}
+                              </Badge>
+                            </div>
+                          </div>
+                        );
+                      });
+                    }
+
+                    // Fallback: no data
+                    return (
+                      <div className="col-span-1 md:col-span-2 lg:col-span-4 p-4 border border-border rounded-lg bg-muted/10 text-center">
+                        <p className="font-medium">Unable to load IoT sensor data</p>
+                        <p className="text-sm text-muted-foreground">Please ensure sensors are connected and auto-refresh is enabled</p>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })()}
                 </div>
               </TabsContent>
 
@@ -1298,21 +1804,25 @@ const StorageGuard = () => {
                 {/* Farmer Dashboard Summary */}
                 {farmerDashboard?.summary && (
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                    <div className="p-4 border border-border rounded-lg bg-gradient-to-br from-background to-blue-500/10">
+                    <div className="p-4 border border-border rounded-lg bg-gradient-to-br from-background to-blue-500/10 relative">
                       <p className="text-sm text-muted-foreground mb-1">Total Bookings</p>
                       <p className="text-2xl font-bold">{farmerDashboard.summary.total_bookings || 0}</p>
+                      {isDashboardRefreshing && <div className="absolute top-2 right-2 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>}
                     </div>
-                    <div className="p-4 border border-border rounded-lg bg-gradient-to-br from-background to-green-500/10">
+                    <div className="p-4 border border-border rounded-lg bg-gradient-to-br from-background to-green-500/10 relative">
                       <p className="text-sm text-muted-foreground mb-1">Active Bookings</p>
                       <p className="text-2xl font-bold">{farmerDashboard.summary.active_bookings || 0}</p>
+                      {isDashboardRefreshing && <div className="absolute top-2 right-2 w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>}
                     </div>
-                    <div className="p-4 border border-border rounded-lg bg-gradient-to-br from-background to-purple-500/10">
+                    <div className="p-4 border border-border rounded-lg bg-gradient-to-br from-background to-purple-500/10 relative">
                       <p className="text-sm text-muted-foreground mb-1">Completed</p>
                       <p className="text-2xl font-bold">{farmerDashboard.summary.completed_bookings || 0}</p>
+                      {isDashboardRefreshing && <div className="absolute top-2 right-2 w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>}
                     </div>
-                    <div className="p-4 border border-border rounded-lg bg-gradient-to-br from-background to-orange-500/10">
+                    <div className="p-4 border border-border rounded-lg bg-gradient-to-br from-background to-orange-500/10 relative">
                       <p className="text-sm text-muted-foreground mb-1">Total Spent</p>
                       <p className="text-2xl font-bold">₹{(farmerDashboard.summary.total_spent || 0).toLocaleString()}</p>
+                      {isDashboardRefreshing && <div className="absolute top-2 right-2 w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>}
                     </div>
                   </div>
                 )}
@@ -1556,8 +2066,19 @@ const StorageGuard = () => {
                                 <Button 
                                   className="bg-green-600 hover:bg-green-700 text-xs h-8"
                                   size="sm"
-                                  disabled={!booking.ai_inspection_id}
+                                  disabled={!booking.ai_inspection_id || !booking.vendor_confirmed}
                                   onClick={async () => {
+                                    // Check vendor confirmation first
+                                    if (!booking.vendor_confirmed) {
+                                      toast({
+                                        title: "⏳ Pending Vendor Approval",
+                                        description: "Certificate can only be generated after vendor confirms your booking. Please wait for vendor approval.",
+                                        variant: "destructive",
+                                        duration: 6000,
+                                      });
+                                      return;
+                                    }
+                                    
                                     // Check certificate eligibility
                                     if (!booking.ai_inspection_id) {
                                       toast({
@@ -1617,20 +2138,63 @@ const StorageGuard = () => {
                                   }}
                                 >
                                   <FileCheck className="w-3 h-3 mr-1" />
-                                  {booking.ai_inspection_id 
-                                    ? 'Complete & Certificate' 
-                                    : '🔒 No Certificate'}
+                                  {!booking.vendor_confirmed 
+                                    ? '⏳ Awaiting Vendor' 
+                                    : booking.ai_inspection_id 
+                                      ? 'Complete & Certificate' 
+                                      : '🔒 No Certificate'}
                                 </Button>
                               )}
                               
                               {/* Show message for pending bookings */}
                               {booking.booking_status?.toLowerCase() === 'pending' && !booking.vendor_confirmed && (
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300 text-xs">
+                                    ⏳ Pending Vendor Approval
+                                  </Badge>
+                                  <Button 
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-xs h-7"
+                                    onClick={() => {
+                                      toast({
+                                        title: "⏳ Booking Status: Pending",
+                                        description: (
+                                          <div className="space-y-2 mt-2">
+                                            <p><strong>Current Status:</strong> Waiting for vendor confirmation</p>
+                                            <p><strong>Next Steps:</strong></p>
+                                            <ol className="list-decimal ml-4 space-y-1">
+                                              <li>Vendor reviews your booking</li>
+                                              <li>Once confirmed → Status becomes "Confirmed"</li>
+                                              <li>After storage period → Click "Complete & Certificate"</li>
+                                            </ol>
+                                            <p className="text-green-300 mt-2">✅ You'll be notified when vendor confirms!</p>
+                                          </div>
+                                        ),
+                                        duration: 10000,
+                                      });
+                                    }}
+                                  >
+                                    ℹ️ Learn More
+                                  </Button>
+                                </div>
+                              )}
+                              
+                              {/* Show active confirmation status */}
+                              {booking.vendor_confirmed && booking.booking_status?.toLowerCase() !== 'completed' && (
+                                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300 text-xs">
+                                  ✅ Vendor Confirmed
+                                </Badge>
+                              )}
+                              
+                              {/* Legacy pending status support */}
+                              {booking.booking_status?.toLowerCase() === 'pending' && booking.vendor_confirmed && (
                                 <Button 
                                   className="bg-yellow-600 hover:bg-yellow-700 text-xs h-8"
                                   size="sm"
                                   onClick={() => {
                                     toast({
-                                      title: "⏳ Booking Pending",
+                                      title: "✅ Booking Confirmed!",
                                       description: "Vendor has not yet accepted. Please wait for confirmation.",
                                       variant: "default",
                                     });
@@ -1889,13 +2453,225 @@ const StorageGuard = () => {
                 )}
               </TabsContent>
 
+              <TabsContent value="inventory" className="space-y-4">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                        <h3 className="text-lg font-semibold flex items-center gap-2">
+                      <Package2 className="w-5 h-5 text-green-600" />
+                      Inventory Listings
+                    </h3>
+                        <div className="flex items-center gap-3">
+                          <div className="text-xs text-muted-foreground">Debug: farmer_id = {getUserId() || 'null'}</div>
+                          <div className="text-xs text-muted-foreground">Inventory count = {inventory.length}</div>
+                          <Button size="sm" onClick={() => fetchInventoryOnly()}>Refresh Inventory</Button>
+                          <Button size="sm" variant="outline" onClick={() => setShowInventoryDebug(s => !s)}>
+                            {showInventoryDebug ? 'Hide Debug' : 'Show Debug'}
+                          </Button>
+                        </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-xs text-muted-foreground">{lastUpdated ? `Inventory last updated: ${lastUpdated.toLocaleString()}` : 'Inventory last updated: --'}</div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        {isIotPestRefreshing ? (
+                          <span className="inline-flex items-center gap-2"><svg className="animate-spin w-4 h-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg> Sensors live</span>
+                        ) : (
+                          <span className="inline-flex items-center gap-2"><svg className="w-4 h-4" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" stroke="currentColor" strokeWidth="2" fill="none"></circle></svg> Sensors live</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {inventoryLoading ? (
+                    <div className="text-center py-8">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                      <p className="mt-2 text-muted-foreground">Loading inventory...</p>
+                    </div>
+                  ) : inventory.length > 0 ? (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {showInventoryDebug && (
+                        <div className="col-span-full">
+                          <div className="p-4 bg-gray-50 rounded border border-dashed text-xs">
+                            <div className="flex items-center justify-between mb-2">
+                              <strong>Inventory Debug (first 5 items)</strong>
+                              <span className="text-muted-foreground">Count: {inventory.length}</span>
+                            </div>
+                            <pre style={{maxHeight: 240, overflow: 'auto'}}>
+{JSON.stringify(inventory.slice(0,5), null, 2)}
+                            </pre>
+                            <hr className="my-3" />
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              onClick={async () => {
+                                const userId = getUserId();
+                                console.log('[DEBUG TEST] farmer_id:', userId);
+                                if (!userId) {
+                                  alert('farmer_id is null or empty!');
+                                  return;
+                                }
+                                try {
+                                  const url = `${API_BASE}/storage-guard/inventory?farmer_id=${userId}`;
+                                  console.log('[DEBUG TEST] Calling:', url);
+                                  const res = await fetch(url);
+                                  const data = await res.json();
+                                  console.log('[DEBUG TEST] Response count:', data.count);
+                                  console.log('[DEBUG TEST] Full response:', data);
+                                  alert(`API returned ${data.count || 0} items. Check console for full response.`);
+                                } catch (err) {
+                                  console.error('[DEBUG TEST] Error:', err);
+                                  alert('Error calling API. Check console.');
+                                }
+                              }}
+                            >
+                              Test API Call
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                      {inventory.map((item: any, mapIndex: number) => {
+                        console.log(`🔍 [RENDER] Rendering card ${mapIndex + 1}/${inventory.length}: ${item.crop_type}`);
+                        const isCarrots = item.crop_type === 'Carrots';
+                        return (
+                        <Card key={item.booking_id} className={`p-6 border rounded-lg ${isCarrots ? 'border-4 border-red-500 bg-red-50' : 'border border-border bg-gradient-field'}`}>
+                          {isCarrots && (
+                            <div className="mb-4 p-3 bg-red-500 text-white rounded font-bold text-center">
+                              🥕 CARROTS BOOKING - 3000 KG
+                            </div>
+                          )}
+                          <div className="flex justify-between items-start mb-4">
+                            <div>
+                              <h4 className="font-semibold text-xl">{item.crop_type}</h4>
+                              <p className="text-sm text-muted-foreground">{item.grade || 'Grade: N/A'}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-2xl font-bold text-green-600">{(item.quantity_kg/100).toFixed(0)} quintals</p>
+                              <p className="text-sm text-muted-foreground">{item.booking_status}</p>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
+                            <div>
+                              <p className="text-muted-foreground">Harvest / Start</p>
+                              <p className="font-medium">{item.start_date ? new Date(item.start_date).toLocaleDateString() : '—'}</p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground">Storage / End</p>
+                              <p className="font-medium">{item.end_date ? new Date(item.end_date).toLocaleDateString() : '—'}</p>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4 text-sm mb-4">
+                            <div>
+                              <p className="text-muted-foreground">Location</p>
+                              <p className="font-medium">
+                                {(() => {
+                                  const loc = storageLocations.find((l: any) => l.id === item.location_id || l.location_id === item.location_id);
+                                  return loc?.name || item.location_id || 'Unknown';
+                                })()}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground">Vendor</p>
+                              <p className="font-medium">
+                                {(() => {
+                                  const v = storageVendors.find((vv: any) => vv.id === item.vendor_id || vv.vendor_id === item.vendor_id);
+                                  return v?.business_name || v?.full_name || item.vendor_id || 'Unassigned';
+                                })()}
+                              </p>
+                            </div>
+                          </div>
+
+                          <Separator />
+
+                          {/* IoT Sensors Section */}
+                          {item.iot_latest && Array.isArray(item.iot_latest) && item.iot_latest.length > 0 && (
+                            <div className="mt-4 space-y-2">
+                              <p className="text-xs font-semibold text-muted-foreground uppercase">IoT Sensors</p>
+                              <div className="grid grid-cols-2 gap-2">
+                                {item.iot_latest.map((sensor: any, idx: number) => (
+                                  <div key={idx} className="bg-blue-50 dark:bg-blue-950 p-2 rounded text-xs">
+                                    <p className="font-medium text-blue-700 dark:text-blue-300 capitalize">{sensor.sensor_type}</p>
+                                    <p className="text-sm font-semibold text-foreground">{sensor.value} {sensor.unit}</p>
+                                    <p className="text-xs text-muted-foreground">{sensor.reading_time ? new Date(sensor.reading_time).toLocaleTimeString() : '—'}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Pest Detection Section */}
+                          {item.pest_latest && (
+                            <div className="mt-3 space-y-1 bg-red-50 dark:bg-red-950 p-3 rounded">
+                              <p className="text-xs font-semibold text-red-700 dark:text-red-300 uppercase">Pest Detection</p>
+                              <div className="grid grid-cols-3 gap-2 text-xs">
+                                <div>
+                                  <p className="text-muted-foreground">Type</p>
+                                  <p className="font-medium capitalize">{item.pest_latest.pest_type}</p>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground">Severity</p>
+                                  <Badge variant={item.pest_latest.severity === 'high' ? 'destructive' : item.pest_latest.severity === 'medium' ? 'secondary' : 'outline'} className="text-xs">
+                                    {item.pest_latest.severity}
+                                  </Badge>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground">Confidence</p>
+                                  <p className="font-medium">{(item.pest_latest.confidence * 100).toFixed(0)}%</p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="flex items-center justify-between mt-4">
+                            <div className="flex gap-2 items-center">
+                              {item.certificate_id ? (
+                                <Badge variant="default" className="bg-green-600">✅ Certified</Badge>
+                              ) : item.certificate_eligible ? (
+                                <Badge variant="secondary" className="bg-yellow-300 text-black">Certificate Eligible (Pending)</Badge>
+                              ) : (
+                                <Badge variant="secondary">No Certificate</Badge>
+                              )}
+                            </div>
+                            <div className="flex gap-2">
+                              {item.certificate_id && (
+                                <Button 
+                                  size="sm" 
+                                  className="bg-green-600 hover:bg-green-700"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    console.log('🔘 View Certificate clicked for:', item.certificate_id);
+                                    handleViewCertificate(item.certificate_id);
+                                  }}
+                                >
+                                  <FileCheck className="w-3 h-3 mr-1" />
+                                  View Certificate
+                                </Button>
+                              )}
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                onClick={() => {
+                                  // Quick copy booking id
+                                  navigator.clipboard?.writeText(item.booking_id || '');
+                                  toast({ title: 'Booking ID copied', description: item.booking_id });
+                                }}
+                              >
+                                Copy ID
+                              </Button>
+                            </div>
+                          </div>
+                        </Card>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-center py-12 border border-dashed border-border rounded-lg">
+                      <p className="text-muted-foreground">No inventory available</p>
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
+
               <TabsContent value="market" className="space-y-4">
-                <MarketIntegrationTab 
-                  userId={getUserId() || ''} 
-                  bookings={myBookings}
-                  apiBase={API_BASE}
-                  toast={toast}
-                />
               </TabsContent>
 
               <TabsContent value="certificates" className="space-y-4">
@@ -2130,27 +2906,238 @@ const StorageGuard = () => {
                       </h3>
                       {storageRFQs.length > 0 ? (
                         <div className="space-y-3">
-                          {storageRFQs.slice(0, 5).map((rfq, index) => (
-                            <div key={index} className="p-3 bg-background/50 rounded-lg border">
-                              <div className="flex justify-between items-start mb-2">
-                                <h4 className="font-medium">{rfq.crop || rfq.crop_type || 'Unknown Crop'}</h4>
-                                <Badge variant={rfq.status?.toUpperCase() === 'OPEN' ? 'default' : 'secondary'}>
-                                  {rfq.status}
-                                </Badge>
-                              </div>
-                              <div className="text-sm space-y-1">
-                                <p className="text-muted-foreground">
-                                  Type: {rfq.storage_type || 'N/A'} | Quantity: {rfq.quantity_kg}kg | Duration: {rfq.duration_days} days
+                          {storageRFQs.slice(0, 10).map((rfq, index) => {
+                            const bids = rfqBids[rfq.id] || [];
+                            const isExpanded = expandedRfqId === rfq.id;
+                            const hasOpenBids = rfq.status === 'OPEN' && bids.length > 0;
+                            
+                            // Debug logging
+                            if (index === 0) {
+                              console.log('🔍 RFQ Debug:', {
+                                rfqId: rfq.id,
+                                crop: rfq.crop,
+                                status: rfq.status,
+                                bidsCount: bids.length,
+                                hasOpenBids,
+                                allBidsKeys: Object.keys(rfqBids)
+                              });
+                            }
+                            
+                            return (
+                              <div key={index} className="p-3 bg-background/50 rounded-lg border">
+                                <div className="flex justify-between items-start mb-2">
+                                  <h4 className="font-medium">{rfq.crop || rfq.crop_type || 'Unknown Crop'}</h4>
+                                  <div className="flex items-center gap-2">
+                                    {hasOpenBids && (
+                                      <Badge variant="outline" className="bg-blue-50 text-blue-700">
+                                        {bids.length} Bids
+                                      </Badge>
+                                    )}
+                                    <Badge variant={rfq.status?.toUpperCase() === 'OPEN' ? 'default' : 'secondary'}>
+                                      {rfq.status}
+                                    </Badge>
+                                  </div>
+                                </div>
+                                <div className="text-sm space-y-1">
+                                  <p className="text-muted-foreground">
+                                    Type: {rfq.storage_type || 'N/A'} | Quantity: {rfq.quantity_kg}kg | Duration: {rfq.duration_days} days
+                                  </p>
+                                  {rfq.max_budget && (
+                                    <p className="font-medium">Budget: ₹{rfq.max_budget?.toLocaleString()}</p>
+                                  )}
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-2">
+                                  Created: {new Date(rfq.created_at).toLocaleDateString()}
                                 </p>
-                                {rfq.max_budget && (
-                                  <p className="font-medium">Budget: ₹{rfq.max_budget?.toLocaleString()}</p>
+                                
+                                {/* Show/Hide Bids Button */}
+                                {hasOpenBids && (
+                                  <>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="w-full mt-2"
+                                      onClick={() => setExpandedRfqId(isExpanded ? null : rfq.id)}
+                                    >
+                                      {isExpanded ? '▼ Hide Vendor Bids' : '▶ View Vendor Bids'}
+                                    </Button>
+                                    
+                                    {/* Vendor Bids Display */}
+                                    {isExpanded && (
+                                      <div className="mt-3 space-y-2 border-t pt-3">
+                                        <h5 className="text-sm font-semibold text-primary">💰 Vendor Bids ({bids.length})</h5>
+                                        {bids.sort((a, b) => {
+                                          // Sort by price (extract number from price_text)
+                                          const priceA = parseInt(a.price_text.match(/\d+/)?.[0] || '999999');
+                                          const priceB = parseInt(b.price_text.match(/\d+/)?.[0] || '999999');
+                                          return priceA - priceB;
+                                        }).map((bid, bidIndex) => {
+                                          const etaDays = Math.ceil(bid.eta_hours / 24);
+                                          const isLowest = bidIndex === 0;
+                                          
+                                          // Debug logging for first bid
+                                          if (bidIndex === 0) {
+                                            console.log('🎯 Rendering first bid:', {
+                                              bidId: bid.id,
+                                              vendorObj: bid.vendor,
+                                              locationObj: bid.location,
+                                              hasVendor: !!bid.vendor,
+                                              hasLocation: !!bid.location
+                                            });
+                                          }
+                                          
+                                          // Extract vendor and location info with defensive checks
+                                          const vendorName = (bid.vendor && (bid.vendor.business_name || bid.vendor.full_name)) || 'Unknown Vendor';
+                                          const locationName = (bid.location && bid.location.name) || `Location ${bidIndex + 1}`;
+                                          const locationAddress = (bid.location && bid.location.address) || 'Address not available';
+                                          const capacity = (bid.location && bid.location.capacity_text) || 'N/A';
+                                          const vendorPhone = (bid.vendor && bid.vendor.phone) || 'N/A';
+                                          const vendorRating = (bid.vendor && bid.vendor.rating_avg) || 0;
+                                          const verified = bid.vendor && bid.vendor.verified;
+                                          
+                                          // Calculate estimated total cost
+                                          // Price format: ₹XXX/quintal/month
+                                          const pricePerQuintalPerMonth = parseInt(bid.price_text.match(/\d+/)?.[0] || '0');
+                                          const quintals = rfq.quantity_kg / 100; // Convert kg to quintals
+                                          const months = Math.ceil(rfq.duration_days / 30); // Convert days to months
+                                          const estimatedCost = Math.round(pricePerQuintalPerMonth * quintals * months);
+                                          
+                                          function fetchAllData() {
+                                            throw new Error("Function not implemented.");
+                                          }
+
+                                          return (
+                                            <div key={bid.id} className={`p-3 rounded-lg border-2 ${
+                                              isLowest ? 'border-green-500 bg-green-50/50' : 'border-border bg-background'
+                                            }`}>
+                                              <div className="flex justify-between items-start mb-2">
+                                                <div className="flex-1">
+                                                  <div className="flex items-center gap-2 flex-wrap">
+                                                    <h6 className="font-medium text-sm">
+                                                      {locationName}
+                                                    </h6>
+                                                    {isLowest && (
+                                                      <Badge variant="default" className="text-xs bg-green-600">
+                                                        Lowest Price
+                                                      </Badge>
+                                                    )}
+                                                    {verified && (
+                                                      <Badge variant="secondary" className="text-xs">
+                                                        ✓ Verified
+                                                      </Badge>
+                                                    )}
+                                                  </div>
+                                                  
+                                                  {/* Vendor Info */}
+                                                  <div className="mt-1 text-xs text-muted-foreground">
+                                                    <p className="font-medium text-foreground">{vendorName}</p>
+                                                    {vendorRating > 0 && (
+                                                      <p>⭐ {vendorRating.toFixed(1)} rating</p>
+                                                    )}
+                                                    <p>📍 {locationAddress}</p>
+                                                    <p>📦 Capacity: {capacity}</p>
+                                                    <p>📞 {vendorPhone}</p>
+                                                  </div>
+                                                  
+                                                  {/* Pricing */}
+                                                  <div className="mt-2 border-t pt-2">
+                                                    <p className="text-sm font-medium">Unit Price: <span className="text-primary font-bold">{bid.price_text}</span></p>
+                                                    <p className="text-xs text-muted-foreground">
+                                                      ({quintals.toFixed(1)} quintals × {months} month{months > 1 ? 's' : ''})
+                                                    </p>
+                                                    <p className="text-lg font-bold text-green-600 mt-1">
+                                                      Estimated Total: ₹{estimatedCost.toLocaleString()}
+                                                    </p>
+                                                    {rfq.max_budget && estimatedCost > rfq.max_budget && (
+                                                      <Badge variant="destructive" className="text-xs mt-1">
+                                                        ⚠️ Exceeds Budget (₹{rfq.max_budget.toLocaleString()})
+                                                      </Badge>
+                                                    )}
+                                                    {rfq.max_budget && estimatedCost <= rfq.max_budget && (
+                                                      <Badge variant="default" className="text-xs mt-1 bg-green-600">
+                                                        ✓ Within Budget
+                                                      </Badge>
+                                                    )}
+                                                  </div>
+                                                  <p className="text-xs text-muted-foreground mt-2">⏱️ ETA: {etaDays} days</p>
+                                                  
+                                                  {/* Additional Notes */}
+                                                  {bid.notes && (
+                                                    <p className="text-xs text-muted-foreground mt-2 italic border-t pt-2">
+                                                      {bid.notes}
+                                                    </p>
+                                                  )}
+                                                </div>
+                                              </div>
+                                              <Button
+                                                size="sm"
+                                                className="w-full mt-2"
+                                                variant={isLowest ? 'default' : 'outline'}
+                                                onClick={async () => {
+                                                  try {
+                                                    const userId = getUserId();
+                                                    if (!userId) {
+                                                      toast({
+                                                        title: "⚠️ Authentication Required",
+                                                        description: "Please log in to accept bids.",
+                                                        variant: "destructive"
+                                                      });
+                                                      return;
+                                                    }
+                                                    const response = await fetch(
+                                                      `${API_BASE}/storage-guard/rfqs/${rfq.id}/accept-bid?bid_id=${bid.id}&farmer_id=${userId}`,
+                                                      {
+                                                        method: 'POST',
+                                                        headers: { 'Content-Type': 'application/json' }
+                                                      }
+                                                    );
+                                                    
+                                                    if (response.ok) {
+                                                      const result = await response.json();
+                                                      
+                                                      // Show success message with job details
+                                                      toast({
+                                                        title: "✅ Bid Accepted Successfully!",
+                                                        description: `Job created (${result.job?.status}). Total cost: ₹${result.booking?.total_price?.toLocaleString() || 'N/A'}`,
+                                                      });
+                                                      
+                                                      // Update RFQ status locally to AWARDED
+                                                      setStorageRFQs(prev => prev.map(r => 
+                                                        r.id === rfq.id ? { ...r, status: 'AWARDED' } : r
+                                                      ));
+                                                      
+                                                      // Add the new job to storage jobs list
+                                                      if (result.job) {
+                                                        setStorageJobs(prev => [...prev, result.job]);
+                                                      }
+                                                      
+                                                      // Refresh all data in background
+                                                      fetchAllData();
+                                                    } else {
+                                                      const errorData = await response.json().catch(() => ({}));
+                                                      throw new Error(errorData.detail || 'Failed to accept bid');
+                                                    }
+                                                  } catch (error) {
+                                                    toast({
+                                                      title: "❌ Error",
+                                                      description: "Failed to accept bid. Please try again.",
+                                                      variant: "destructive"
+                                                    });
+                                                  }
+                                                }}
+                                              >
+                                                ✓ Accept This Bid
+                                              </Button>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </>
                                 )}
                               </div>
-                              <p className="text-xs text-muted-foreground mt-2">
-                                Created: {new Date(rfq.created_at).toLocaleDateString()}
-                              </p>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       ) : (
                         <p className="text-muted-foreground">No active RFQs found</p>
@@ -2166,7 +3153,14 @@ const StorageGuard = () => {
                       {storageJobs.length > 0 ? (
                         <div className="space-y-3">
                           {storageJobs.slice(0, 5).map((job, index) => (
-                            <div key={index} className="p-3 bg-background/50 rounded-lg border">
+                            <div
+                              key={index}
+                              className="p-3 bg-background/50 rounded-lg border cursor-pointer hover:bg-accent/30 transition"
+                              onClick={() => {
+                                setSelectedJobId(job.id);
+                                setShowJobModal(true);
+                              }}
+                            >
                               <div className="flex justify-between items-start mb-2">
                                 <h4 className="font-medium">{job.title || 'Storage Job'}</h4>
                                 <Badge variant={
@@ -2187,8 +3181,81 @@ const StorageGuard = () => {
                                   Completed: {new Date(job.completed_at).toLocaleDateString()}
                                 </p>
                               )}
+                              <Button size="sm" variant="outline" className="mt-2" onClick={e => { e.stopPropagation(); setSelectedJobId(job.id); setShowJobModal(true); }}>View Details</Button>
                             </div>
                           ))}
+                              {/* Job Details Modal */}
+                              {showJobModal && (
+                                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+                                  <div className="bg-white dark:bg-background rounded-lg shadow-lg max-w-2xl w-full p-6 relative">
+                                    <button
+                                      className="absolute top-2 right-2 text-xl text-muted-foreground hover:text-primary"
+                                      onClick={() => { setShowJobModal(false); setSelectedJobId(null); }}
+                                      aria-label="Close"
+                                    >
+                                      ×
+                                    </button>
+                                    {jobDetailsLoading ? (
+                                      <div className="py-12 text-center text-muted-foreground">Loading job details...</div>
+                                    ) : jobDetails ? (
+                                      <div>
+                                        <h2 className="text-xl font-bold mb-2">Storage Job Details</h2>
+                                        <div className="mb-2 flex flex-wrap gap-4">
+                                          <div>
+                                            <span className="font-semibold">Status:</span> {jobDetails.status}
+                                          </div>
+                                          <div>
+                                            <span className="font-semibold">Created:</span> {jobDetails.created_at ? new Date(jobDetails.created_at).toLocaleString() : '-'}
+                                          </div>
+                                          <div>
+                                            <span className="font-semibold">DSR Number:</span> {jobDetails.dsr_number || '-'}
+                                          </div>
+                                        </div>
+                                        <Separator className="my-2" />
+                                        <div className="mb-2">
+                                          <span className="font-semibold">Crop:</span> {jobDetails.rfq?.crop} <span className="ml-4 font-semibold">Quantity:</span> {jobDetails.rfq?.quantity_kg} kg
+                                        </div>
+                                        <div className="mb-2">
+                                          <span className="font-semibold">Duration:</span> {jobDetails.rfq?.duration_days} days
+                                          <span className="ml-4 font-semibold">Budget:</span> ₹{jobDetails.rfq?.max_budget}
+                                        </div>
+                                        <div className="mb-2">
+                                          <span className="font-semibold">Farmer:</span> {jobDetails.farmer?.name} <span className="ml-4 font-semibold">Phone:</span> {jobDetails.farmer?.phone}
+                                        </div>
+                                        <div className="mb-2">
+                                          <span className="font-semibold">Vendor:</span> {jobDetails.vendor?.business_name} <span className="ml-4 font-semibold">Rating:</span> {jobDetails.vendor?.rating}
+                                        </div>
+                                        <div className="mb-2">
+                                          <span className="font-semibold">Location:</span> {jobDetails.location?.name} <span className="ml-4 font-semibold">Address:</span> {jobDetails.location?.address}
+                                        </div>
+                                        <div className="mb-2">
+                                          <span className="font-semibold">Bid Price:</span> {jobDetails.bid?.price_text} <span className="ml-4 font-semibold">ETA:</span> {jobDetails.bid?.eta_hours} hours
+                                        </div>
+                                        {jobDetails.booking && (
+                                          <div className="mb-2">
+                                            <span className="font-semibold">Booking Status:</span> {jobDetails.booking.booking_status}
+                                            <span className="ml-4 font-semibold">Payment:</span> {jobDetails.booking.payment_status}
+                                            <span className="ml-4 font-semibold">Total:</span> ₹{jobDetails.booking.total_price}
+                                          </div>
+                                        )}
+                                        <Separator className="my-2" />
+                                        <div className="mb-2">
+                                          <span className="font-semibold">Timeline:</span>
+                                          <ul className="list-disc ml-6 mt-1">
+                                            {jobDetails.timeline?.map((item: any, idx: number) => (
+                                              <li key={idx} className="text-sm">
+                                                <span className="font-semibold">{item.event}:</span> {item.status} <span className="ml-2 text-muted-foreground">{item.timestamp ? new Date(item.timestamp).toLocaleString() : ''}</span>
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="py-12 text-center text-muted-foreground">No job details found.</div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
                         </div>
                       ) : (
                         <p className="text-muted-foreground">No jobs found</p>
@@ -2242,23 +3309,34 @@ const StorageGuard = () => {
             <CardTitle className="flex items-center gap-2">
               <BarChart3 className="h-5 w-5" />
               Storage Performance Dashboard
+              {isMetricsRefreshing && <div className="ml-auto w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>}
             </CardTitle>
             <CardDescription>Real-time monitoring of storage facilities and quality metrics</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {storageMetrics.map((metric, index) => (
-                <div key={index} className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">{metric.label}</span>
-                    <span className="font-medium">{metric.value}</span>
+              {storageMetrics.map((metric, index) => {
+                // Handle both metric.label and metric.metric for backwards compatibility
+                const label = metric.label || metric.metric || 'N/A';
+                const valueStr = String(metric.value || '0').replace(/[^\d.]/g, '');
+                const numValue = parseInt(valueStr) || 0;
+                
+                return (
+                  <div key={index} className="space-y-2 relative">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">{label}</span>
+                      <span className="font-medium">{metric.value}</span>
+                    </div>
+                    <Progress 
+                      value={Math.min(numValue, 100)} 
+                      className="h-2"
+                    />
+                    {isMetricsRefreshing && (
+                      <div className="absolute bottom-0 right-0 w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
+                    )}
                   </div>
-                  <Progress 
-                    value={parseInt(metric.value)} 
-                    className="h-2"
-                  />
-                </div>
-              ))}
+                );
+              })}
             </div>
           </CardContent>
         </Card>
@@ -2284,7 +3362,7 @@ const StorageGuard = () => {
                 {storageLocations.map((location, index) => {
                   const Icon = location.location_type === "COLD" ? Snowflake : Wheat;
                   const color = location.location_type === "COLD" ? "text-blue-600" : "text-amber-600";
-                  const utilization = Math.floor(Math.random() * 40) + 60; // Random 60-100%
+                  const utilization = locationUtilization[location.id] || 0; // Real utilization from bookings
                   
                   return (
                     <Card key={index}>
@@ -2301,15 +3379,15 @@ const StorageGuard = () => {
                         <div className="grid grid-cols-2 gap-4 text-sm">
                           <div>
                             <span className="text-muted-foreground">Type:</span>
-                            <p className="font-medium">{location.location_type} Storage</p>
+                            <p className="font-medium">{location.type || location.location_type || 'Storage'}</p>
                           </div>
                           <div>
                             <span className="text-muted-foreground">Location:</span>
-                            <p className="font-medium">{location.city}, {location.state}</p>
+                            <p className="font-medium">{location.address || location.city || 'N/A'}</p>
                           </div>
                           <div>
                             <span className="text-muted-foreground">Capacity:</span>
-                            <p className="font-medium">{location.capacity_mt} MT</p>
+                            <p className="font-medium">{location.capacity_text || location.capacity_mt || 'N/A'}</p>
                           </div>
                           <div>
                             <span className="text-muted-foreground">Utilization:</span>
@@ -2954,6 +4032,159 @@ const StorageGuard = () => {
                     Schedule Inspection
                   </Button>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Certificate Viewing Modal */}
+      {showCertificateModal && selectedCertificate && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-background rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-border">
+            <div className="sticky top-0 bg-background border-b border-border px-6 py-4 flex justify-between items-center">
+              <div>
+                <h2 className="text-2xl font-bold text-foreground">Storage Quality Certificate</h2>
+                <p className="text-sm text-muted-foreground mt-1">Official Certificate of Storage Quality</p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowCertificateModal(false)}
+                className="rounded-full"
+              >
+                ✕
+              </Button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Certificate Header */}
+              <div className="bg-gradient-to-br from-green-50 to-blue-50 dark:from-green-900/20 dark:to-blue-900/20 p-6 rounded-lg border-2 border-green-500/20">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center">
+                      <FileCheck className="w-6 h-6 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold text-foreground">Certificate #{selectedCertificate.certificate_number}</h3>
+                      <p className="text-sm text-muted-foreground">ID: {selectedCertificate.id}</p>
+                    </div>
+                  </div>
+                  <Badge className="bg-green-500 text-white text-lg px-4 py-2">
+                    {selectedCertificate.status}
+                  </Badge>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 mt-4">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Issue Date</p>
+                    <p className="font-semibold">{new Date(selectedCertificate.issue_date).toLocaleDateString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Valid Until</p>
+                    <p className="font-semibold">{new Date(selectedCertificate.valid_until).toLocaleDateString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Overall Quality Score</p>
+                    <p className="font-bold text-2xl text-green-600">{selectedCertificate.quality_score}/100</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Certificate Status</p>
+                    <Badge variant={selectedCertificate.status === 'VALID' ? 'default' : 'secondary'}>
+                      {selectedCertificate.status}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quality Metrics */}
+              {selectedCertificate.metrics && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Gauge className="w-5 h-5" />
+                      Quality Metrics
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="space-y-2">
+                        <p className="text-sm text-muted-foreground">Temperature (Avg)</p>
+                        <p className="text-xl font-bold">{selectedCertificate.metrics.temperature_avg || 'N/A'}°C</p>
+                        <p className="text-xs text-muted-foreground">Range: {selectedCertificate.metrics.temperature_min}°C - {selectedCertificate.metrics.temperature_max}°C</p>
+                      </div>
+                      <div className="space-y-2">
+                        <p className="text-sm text-muted-foreground">Humidity (Avg)</p>
+                        <p className="text-xl font-bold">{selectedCertificate.metrics.humidity_avg || 'N/A'}%</p>
+                        <p className="text-xs text-muted-foreground">Range: {selectedCertificate.metrics.humidity_min}% - {selectedCertificate.metrics.humidity_max}%</p>
+                      </div>
+                      <div className="space-y-2">
+                        <p className="text-sm text-muted-foreground">Moisture (Avg)</p>
+                        <p className="text-xl font-bold">{selectedCertificate.metrics.moisture_avg || 'N/A'}%</p>
+                      </div>
+                      <div className="space-y-2">
+                        <p className="text-sm text-muted-foreground">CO2 (Avg)</p>
+                        <p className="text-xl font-bold">{selectedCertificate.metrics.co2_avg || 'N/A'} ppm</p>
+                      </div>
+                    </div>
+
+                    <Separator className="my-4" />
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-sm text-muted-foreground mb-2">Storage Compliance</p>
+                        <div className="flex items-center gap-2">
+                          <Progress value={selectedCertificate.metrics.storage_compliance || 0} className="flex-1" />
+                          <span className="font-bold">{selectedCertificate.metrics.storage_compliance || 0}%</span>
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground mb-2">Pest Free Days</p>
+                        <p className="text-2xl font-bold text-green-600">{selectedCertificate.metrics.pest_free_days || 0} days</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Verification */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Shield className="w-5 h-5" />
+                    Verification
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground mb-2">This certificate has been digitally verified and authenticated by the Storage Guard system.</p>
+                  <div className="flex items-center gap-2 mt-4">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        navigator.clipboard.writeText(selectedCertificate.certificate_number);
+                        toast({
+                          title: "Copied!",
+                          description: "Certificate number copied to clipboard",
+                        });
+                      }}
+                    >
+                      <Copy className="w-4 h-4 mr-2" />
+                      Copy Certificate Number
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Actions */}
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" onClick={() => setShowCertificateModal(false)}>
+                  Close
+                </Button>
+                <Button className="agri-button-primary">
+                  <FileText className="w-4 h-4 mr-2" />
+                  Download PDF
+                </Button>
               </div>
             </div>
           </div>

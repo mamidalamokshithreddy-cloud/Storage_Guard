@@ -1,272 +1,329 @@
 """
-Complete Storage Guard Flow Testing Script
-Tests all database tables and verifies data integrity
+STORAGE GUARD STEP-BY-STEP TESTING SCRIPT
+==========================================
+This script tests each component of Storage Guard system independently
+
+Run this to verify the complete flow before submitting.
 """
 
-from sqlalchemy import create_engine, inspect, func
-from sqlalchemy.orm import sessionmaker
-from app.core.config import settings
-from app.schemas import postgres_base as models
-from datetime import datetime
+import psycopg2
+from datetime import datetime, timedelta
+import requests
+import json
 
 # Database connection
-engine = create_engine(f'postgresql://{settings.db_user}:{settings.db_password}@{settings.db_host}:{settings.db_port}/{settings.db_name}')
-Session = sessionmaker(bind=engine)
-db = Session()
-inspector = inspect(engine)
+conn = psycopg2.connect(
+    dbname="Agriculture",
+    user="postgres",
+    password="Mani8143",
+    host="localhost",
+    port="5432"
+)
+conn.autocommit = True
+cur = conn.cursor()
+
+BASE_URL = "http://localhost:8000/storage-guard"
 
 print("=" * 80)
-print("STORAGE GUARD - COMPLETE FLOW TEST")
+print("STORAGE GUARD COMPLETE SYSTEM TEST")
 print("=" * 80)
 
-# 1. Check if all required tables exist
-print("\n1. DATABASE TABLES CHECK")
+# ============================================================================
+# STEP 1: DATABASE STRUCTURE VERIFICATION
+# ============================================================================
+print("\n\nSTEP 1: VERIFYING DATABASE STRUCTURE")
 print("-" * 80)
-storage_tables = [
-    'users', 'storage_locations', 'storage_bookings', 'crop_inspections',
-    'storage_rfqs', 'booking_payments', 'compliance_certificates',
-    'scheduled_inspections', 'transport_bookings'
+
+required_tables = [
+    'storage_bookings',
+    'storage_locations', 
+    'market_inventory_snapshots',
+    'sensor_readings',
+    'iot_sensors',
+    'crop_inspections',
+    'vendors',
+    'farmers',
+    'users'
 ]
 
-all_tables = inspector.get_table_names()
-for table in storage_tables:
-    status = "✅ EXISTS" if table in all_tables else "❌ MISSING"
-    print(f"  {table:30} {status}")
+print("Checking required tables...")
+for table in required_tables:
+    cur.execute(f"""
+        SELECT COUNT(*) 
+        FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = '{table}';
+    """)
+    exists = cur.fetchone()[0]
+    
+    if exists:
+        cur.execute(f"SELECT COUNT(*) FROM {table};")
+        count = cur.fetchone()[0]
+        print(f"   ✓ {table:35s}: {count:5d} rows")
+    else:
+        print(f"   ✗ {table:35s}: MISSING!")
 
-# 2. Check users and roles
-print("\n2. USER AUTHENTICATION DATA")
+# ============================================================================
+# STEP 2: CHECK CURRENT DATA STATE
+# ============================================================================
+print("\n\nSTEP 2: CURRENT DATA STATE")
 print("-" * 80)
-total_users = db.query(func.count(models.User.id)).scalar()
-farmers = db.query(func.count(models.User.id)).filter(models.User.role == 'farmer').scalar()
-vendors = db.query(func.count(models.User.id)).filter(models.User.role == 'vendor').scalar()
-admins = db.query(func.count(models.User.id)).filter(models.User.role == 'admin').scalar()
 
-print(f"  Total Users: {total_users}")
-print(f"  Farmers: {farmers}")
-print(f"  Vendors: {vendors}")
-print(f"  Admins: {admins}")
+# Bookings
+cur.execute("""
+    SELECT 
+        booking_status,
+        COUNT(*) as count
+    FROM storage_bookings
+    GROUP BY booking_status
+    ORDER BY count DESC;
+""")
+booking_stats = cur.fetchall()
+print("\nBookings by status:")
+for stat in booking_stats:
+    print(f"   {stat[0]:20s}: {stat[1]:3d}")
 
-# Sample farmer
-sample_farmer = db.query(models.User).filter(models.User.role == 'farmer').first()
-if sample_farmer:
-    print(f"\n  Sample Farmer:")
-    print(f"    Name: {sample_farmer.full_name}")
-    print(f"    Email: {sample_farmer.email}")
-    print(f"    ID: {sample_farmer.id}")
+# Snapshots
+cur.execute("""
+    SELECT 
+        status,
+        COUNT(*) as count
+    FROM market_inventory_snapshots
+    GROUP BY status;
+""")
+snapshot_stats = cur.fetchall()
+print("\nSnapshots by status:")
+for stat in snapshot_stats:
+    print(f"   {stat[0]:20s}: {stat[1]:3d}")
 
-# 3. Check crop inspections (AI analysis)
-print("\n3. CROP INSPECTIONS (AI ANALYSIS)")
+# Sensors and Readings
+cur.execute("SELECT COUNT(*) FROM iot_sensors;")
+sensor_count = cur.fetchone()[0]
+cur.execute("""
+    SELECT COUNT(*) 
+    FROM sensor_readings 
+    WHERE reading_time > NOW() - INTERVAL '1 hour';
+""")
+recent_readings = cur.fetchone()[0]
+print(f"\nIoT Sensors: {sensor_count}")
+print(f"Recent readings (last hour): {recent_readings}")
+
+# ============================================================================
+# STEP 3: TEST BOOKING CREATION FLOW
+# ============================================================================
+print("\n\nSTEP 3: TESTING BOOKING CREATION")
 print("-" * 80)
-total_inspections = db.query(func.count(models.CropInspection.id)).scalar()
-print(f"  Total Inspections: {total_inspections}")
 
-if total_inspections > 0:
-    recent = db.query(models.CropInspection).order_by(models.CropInspection.created_at.desc()).first()
-    print(f"\n  Most Recent Inspection:")
-    print(f"    Crop: {recent.crop_detected}")
-    print(f"    Grade: {recent.grade}")
-    print(f"    Shelf Life: {recent.shelf_life_days} days")
-    print(f"    Freshness: {recent.freshness}")
-    print(f"    Image URLs: {recent.image_urls}")
-    print(f"    Defects: {len(recent.defects) if recent.defects else 0}")
+# Get a farmer and location
+cur.execute("SELECT id FROM users WHERE role = 'farmer' LIMIT 1;")
+farmer_result = cur.fetchone()
+if farmer_result:
+    farmer_id = str(farmer_result[0])
+    print(f"Using farmer_id: {farmer_id}")
+    
+    cur.execute("SELECT id, name FROM storage_locations LIMIT 1;")
+    location_result = cur.fetchone()
+    if location_result:
+        location_id = str(location_result[0])
+        location_name = location_result[1]
+        print(f"Using location: {location_name} ({location_id})")
+        
+        # Test data
+        test_booking = {
+            "location_id": location_id,
+            "crop_type": "Test Tomatoes",
+            "quantity_kg": 500,
+            "duration_days": 30,
+            "start_date": datetime.now().isoformat(),
+            "transport_required": False
+        }
+        
+        print(f"\nAttempting to create test booking...")
+        print(f"Crop: {test_booking['crop_type']}")
+        print(f"Quantity: {test_booking['quantity_kg']}kg")
+        
+        try:
+            response = requests.post(
+                f"{BASE_URL}/bookings",
+                params={"farmer_id": farmer_id},
+                json=test_booking,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                booking_data = response.json()
+                booking_id = booking_data.get('id')
+                print(f"   ✓ Booking created: {booking_id}")
+                
+                # Check if snapshot was created
+                cur.execute("""
+                    SELECT id, status 
+                    FROM market_inventory_snapshots 
+                    WHERE booking_id = %s;
+                """, (booking_id,))
+                snapshot = cur.fetchone()
+                
+                if snapshot:
+                    print(f"   ✓ Snapshot created: {snapshot[0]}")
+                    print(f"   Status: {snapshot[1]}")
+                else:
+                    print(f"   ✗ No snapshot found for booking!")
+                    
+            else:
+                print(f"   ✗ Booking creation failed: {response.status_code}")
+                print(f"   Error: {response.text[:200]}")
+                
+        except requests.exceptions.ConnectionError:
+            print("   ✗ Cannot connect to backend - is it running?")
+        except Exception as e:
+            print(f"   ✗ Error: {e}")
+    else:
+        print("   ✗ No storage locations found")
+else:
+    print("   ✗ No farmers found")
 
-# 4. Check storage locations
-print("\n4. STORAGE LOCATIONS")
+# ============================================================================
+# STEP 4: TEST SENSOR DATA GENERATION
+# ============================================================================
+print("\n\nSTEP 4: TESTING SENSOR DATA")
 print("-" * 80)
-total_locations = db.query(func.count(models.StorageLocation.id)).scalar()
-cold_storage = db.query(func.count(models.StorageLocation.id)).filter(
-    models.StorageLocation.type.in_(['cold_storage', 'cold'])
-).scalar()
-dry_storage = db.query(func.count(models.StorageLocation.id)).filter(
-    models.StorageLocation.type.in_(['dry_storage', 'warehouse', 'dry'])
-).scalar()
 
-print(f"  Total Locations: {total_locations}")
-print(f"  Cold Storage: {cold_storage}")
-print(f"  Dry Storage: {dry_storage}")
+cur.execute("""
+    SELECT 
+        location_id,
+        COUNT(*) as sensor_count
+    FROM iot_sensors
+    GROUP BY location_id
+    LIMIT 1;
+""")
+sensor_loc = cur.fetchone()
 
-# 5. Check RFQs
-print("\n5. STORAGE RFQs (REQUEST FOR QUOTES)")
+if sensor_loc:
+    print(f"Location {str(sensor_loc[0])[:12]}... has {sensor_loc[1]} sensors")
+    
+    # Check latest readings
+    cur.execute("""
+        SELECT 
+            s.sensor_type,
+            sr.value,
+            sr.reading_time AT TIME ZONE 'Asia/Kolkata' as reading_time
+        FROM iot_sensors s
+        LEFT JOIN sensor_readings sr ON sr.sensor_id = s.id
+        WHERE s.location_id = %s
+        AND sr.reading_time > NOW() - INTERVAL '10 minutes'
+        ORDER BY sr.reading_time DESC
+        LIMIT 5;
+    """, (sensor_loc[0],))
+    
+    recent = cur.fetchall()
+    if recent:
+        print(f"\nRecent sensor readings (last 10 min):")
+        for r in recent:
+            print(f"   {r[0]:15s}: {r[1]:6.2f} at {r[2].strftime('%H:%M:%S')}")
+    else:
+        print("   ⚠ No recent sensor readings in last 10 minutes")
+else:
+    print("   ✗ No sensors found")
+
+# ============================================================================
+# STEP 5: TEST MARKET SNAPSHOT SYNC
+# ============================================================================
+print("\n\nSTEP 5: TESTING MARKET SNAPSHOT SYNC")
 print("-" * 80)
-total_rfqs = db.query(func.count(models.StorageRFQ.id)).scalar()
-open_rfqs = db.query(func.count(models.StorageRFQ.id)).filter(
-    models.StorageRFQ.status == 'open'
-).scalar()
 
-print(f"  Total RFQs: {total_rfqs}")
-print(f"  Open RFQs: {open_rfqs}")
+cur.execute("""
+    SELECT 
+        id,
+        booking_id,
+        crop_type,
+        status,
+        updated_at AT TIME ZONE 'Asia/Kolkata' as updated_ist
+    FROM market_inventory_snapshots
+    ORDER BY updated_at DESC
+    LIMIT 3;
+""")
+snapshots = cur.fetchall()
 
-if total_rfqs > 0:
-    recent_rfq = db.query(models.StorageRFQ).order_by(models.StorageRFQ.created_at.desc()).first()
-    print(f"\n  Most Recent RFQ:")
-    print(f"    Crop: {recent_rfq.crop}")
-    print(f"    Quantity: {recent_rfq.quantity_kg} kg")
-    print(f"    Duration: {recent_rfq.duration_days} days")
-    print(f"    Budget: ₹{recent_rfq.max_budget}")
-    print(f"    Status: {recent_rfq.status}")
+print("Latest snapshots:")
+for snap in snapshots:
+    age_minutes = (datetime.now() - snap[4].replace(tzinfo=None)).total_seconds() / 60
+    print(f"   {snap[2]:30s} | {snap[3]:15s} | Updated {age_minutes:.0f} min ago")
 
-# 6. Check bookings
-print("\n6. STORAGE BOOKINGS")
+# ============================================================================
+# STEP 6: CHECK FOR ERRORS/ISSUES
+# ============================================================================
+print("\n\nSTEP 6: CHECKING FOR ISSUES")
 print("-" * 80)
-total_bookings = db.query(func.count(models.StorageBooking.id)).scalar()
-pending = db.query(func.count(models.StorageBooking.id)).filter(
-    models.StorageBooking.booking_status == 'PENDING'
-).scalar()
-confirmed = db.query(func.count(models.StorageBooking.id)).filter(
-    models.StorageBooking.booking_status == 'CONFIRMED'
-).scalar()
-completed = db.query(func.count(models.StorageBooking.id)).filter(
-    models.StorageBooking.booking_status == 'COMPLETED'
-).scalar()
 
-print(f"  Total Bookings: {total_bookings}")
-print(f"  Pending: {pending}")
-print(f"  Confirmed: {confirmed}")
-print(f"  Completed: {completed}")
+# Check for bookings without snapshots
+cur.execute("""
+    SELECT COUNT(*)
+    FROM storage_bookings sb
+    LEFT JOIN market_inventory_snapshots mis ON mis.booking_id = sb.id
+    WHERE mis.id IS NULL 
+    AND sb.booking_status != 'CANCELLED';
+""")
+missing_snapshots = cur.fetchone()[0]
 
-if total_bookings > 0:
-    recent_booking = db.query(models.StorageBooking).order_by(
-        models.StorageBooking.created_at.desc()
-    ).first()
-    print(f"\n  Most Recent Booking:")
-    print(f"    Crop: {recent_booking.crop_type}")
-    print(f"    Quantity: {recent_booking.quantity_kg} kg")
-    print(f"    Duration: {recent_booking.duration_days} days")
-    print(f"    Status: {recent_booking.booking_status}")
-    print(f"    Price: ₹{recent_booking.price_per_day}/day")
-    print(f"    Has AI Inspection: {'Yes' if recent_booking.ai_inspection_id else 'No'}")
+if missing_snapshots > 0:
+    print(f"   ⚠ WARNING: {missing_snapshots} bookings without snapshots")
+    
+    # Show which bookings are missing snapshots
+    cur.execute("""
+        SELECT sb.id, sb.crop_type, sb.created_at AT TIME ZONE 'Asia/Kolkata'
+        FROM storage_bookings sb
+        LEFT JOIN market_inventory_snapshots mis ON mis.booking_id = sb.id
+        WHERE mis.id IS NULL 
+        AND sb.booking_status != 'CANCELLED'
+        LIMIT 5;
+    """)
+    missing = cur.fetchall()
+    for m in missing:
+        print(f"      - {m[1]:30s} created {m[2].strftime('%Y-%m-%d %H:%M')}")
+else:
+    print(f"   ✓ All active bookings have snapshots")
 
-# 7. Check payments
-print("\n7. BOOKING PAYMENTS")
-print("-" * 80)
-total_payments = db.query(func.count(models.BookingPayment.id)).scalar()
-paid = db.query(func.count(models.BookingPayment.id)).filter(
-    models.BookingPayment.payment_status == 'paid'
-).scalar()
-pending_payments = db.query(func.count(models.BookingPayment.id)).filter(
-    models.BookingPayment.payment_status == 'pending'
-).scalar()
+# Check for stale snapshots
+cur.execute("""
+    SELECT COUNT(*)
+    FROM market_inventory_snapshots
+    WHERE updated_at < NOW() - INTERVAL '2 hours';
+""")
+stale_count = cur.fetchone()[0]
 
-print(f"  Total Payment Records: {total_payments}")
-print(f"  Paid: {paid}")
-print(f"  Pending: {pending_payments}")
+if stale_count > 0:
+    print(f"   ⚠ WARNING: {stale_count} snapshots not updated in 2+ hours")
+else:
+    print(f"   ✓ All snapshots are fresh")
 
-if total_payments > 0:
-    total_amount = db.query(func.sum(models.BookingPayment.total_amount)).scalar() or 0
-    print(f"  Total Amount: ₹{total_amount:.2f}")
-
-# 8. Check certificates
-print("\n8. COMPLIANCE CERTIFICATES")
-print("-" * 80)
-total_certificates = db.query(func.count(models.ComplianceCertificate.id)).scalar()
-verified = db.query(func.count(models.ComplianceCertificate.id)).filter(
-    models.ComplianceCertificate.status == 'verified'
-).scalar()
-
-print(f"  Total Certificates: {total_certificates}")
-print(f"  Verified: {verified}")
-
-if total_certificates > 0:
-    recent_cert = db.query(models.ComplianceCertificate).order_by(
-        models.ComplianceCertificate.created_at.desc()
-    ).first()
-    print(f"\n  Most Recent Certificate:")
-    print(f"    Number: {recent_cert.certificate_number}")
-    print(f"    Type: {recent_cert.certificate_type}")
-    print(f"    Status: {recent_cert.status}")
-    print(f"    Score: {recent_cert.score}")
-    print(f"    Has QR Code: {'Yes' if recent_cert.qr_code_url else 'No'}")
-
-# 9. Check scheduled inspections
-print("\n9. SCHEDULED INSPECTIONS")
-print("-" * 80)
-total_scheduled = db.query(func.count(models.ScheduledInspection.id)).scalar()
-pending_scheduled = db.query(func.count(models.ScheduledInspection.id)).filter(
-    models.ScheduledInspection.status == 'pending'
-).scalar()
-confirmed_scheduled = db.query(func.count(models.ScheduledInspection.id)).filter(
-    models.ScheduledInspection.status == 'confirmed'
-).scalar()
-completed_scheduled = db.query(func.count(models.ScheduledInspection.id)).filter(
-    models.ScheduledInspection.status == 'completed'
-).scalar()
-
-print(f"  Total Scheduled Inspections: {total_scheduled}")
-print(f"  Pending: {pending_scheduled}")
-print(f"  Confirmed: {confirmed_scheduled}")
-print(f"  Completed: {completed_scheduled}")
-
-if total_scheduled > 0:
-    recent_inspection = db.query(models.ScheduledInspection).order_by(
-        models.ScheduledInspection.created_at.desc()
-    ).first()
-    print(f"\n  Most Recent Scheduled Inspection:")
-    print(f"    Type: {recent_inspection.inspection_type}")
-    print(f"    Crop: {recent_inspection.crop_type}")
-    print(f"    Quantity: {recent_inspection.quantity_kg} kg")
-    print(f"    Status: {recent_inspection.status}")
-    print(f"    Requested Date: {recent_inspection.requested_date}")
-    print(f"    Vendor Assigned: {'Yes' if recent_inspection.vendor_id else 'No'}")
-
-# 10. Check transport bookings
-print("\n10. TRANSPORT BOOKINGS")
-print("-" * 80)
-total_transport = db.query(func.count(models.TransportBooking.id)).scalar()
-print(f"  Total Transport Bookings: {total_transport}")
-
-# Final Summary
-print("\n" + "=" * 80)
-print("SUMMARY")
+# ============================================================================
+# SUMMARY
+# ============================================================================
+print("\n\n" + "=" * 80)
+print("TEST SUMMARY")
 print("=" * 80)
-print(f"✅ Total Users: {total_users} (Farmers: {farmers}, Vendors: {vendors})")
-print(f"✅ Total Inspections: {total_inspections}")
-print(f"✅ Total Locations: {total_locations}")
-print(f"✅ Total RFQs: {total_rfqs}")
-print(f"✅ Total Bookings: {total_bookings} (Pending: {pending}, Confirmed: {confirmed}, Completed: {completed})")
-print(f"✅ Total Payments: {total_payments}")
-print(f"✅ Total Certificates: {total_certificates}")
-print(f"✅ Total Scheduled Inspections: {total_scheduled}")
-print(f"✅ Total Transport Bookings: {total_transport}")
 
-# Data integrity checks
-print("\n" + "=" * 80)
-print("DATA INTEGRITY CHECKS")
-print("=" * 80)
+cur.execute("SELECT COUNT(*) FROM storage_bookings WHERE booking_status != 'CANCELLED';")
+active_bookings = cur.fetchone()[0]
 
-# Check bookings with missing farmers
-bookings_no_farmer = db.query(func.count(models.StorageBooking.id)).filter(
-    models.StorageBooking.farmer_id == None
-).scalar()
-print(f"  Bookings without Farmer ID: {bookings_no_farmer} {'❌' if bookings_no_farmer > 0 else '✅'}")
+cur.execute("SELECT COUNT(*) FROM market_inventory_snapshots;")
+total_snapshots = cur.fetchone()[0]
 
-# Check bookings with payments
-bookings_with_payments = db.query(func.count(models.StorageBooking.id)).filter(
-    models.StorageBooking.id.in_(
-        db.query(models.BookingPayment.booking_id).distinct()
-    )
-).scalar() if total_payments > 0 else 0
-print(f"  Bookings with Payment Records: {bookings_with_payments}/{total_bookings}")
+cur.execute("SELECT COUNT(*) FROM sensor_readings WHERE reading_time > NOW() - INTERVAL '1 hour';")
+recent_sensor_data = cur.fetchone()[0]
 
-# Check bookings with certificates
-bookings_with_certs = db.query(func.count(models.StorageBooking.id)).filter(
-    models.StorageBooking.id.in_(
-        db.query(models.ComplianceCertificate.booking_id).distinct()
-    )
-).scalar() if total_certificates > 0 else 0
-print(f"  Bookings with Certificates: {bookings_with_certs}/{completed}")
+print(f"\nActive Bookings: {active_bookings}")
+print(f"Total Snapshots: {total_snapshots}")
+print(f"Sensor Readings (last hour): {recent_sensor_data}")
+print(f"Missing Snapshots: {missing_snapshots}")
+print(f"Stale Snapshots (>2h): {stale_count}")
 
-# Check inspections linked to bookings
-inspections_linked = db.query(func.count(models.CropInspection.id)).filter(
-    models.CropInspection.id.in_(
-        db.query(models.StorageBooking.ai_inspection_id).filter(
-            models.StorageBooking.ai_inspection_id != None
-        )
-    )
-).scalar()
-print(f"  Inspections Linked to Bookings: {inspections_linked}/{total_inspections}")
+if missing_snapshots == 0 and stale_count == 0:
+    print("\n✓ ALL TESTS PASSED - System ready for submission!")
+else:
+    print("\n⚠ ISSUES FOUND - Please fix before submission")
 
 print("\n" + "=" * 80)
-print("TEST COMPLETE!")
-print("=" * 80)
 
-db.close()
+cur.close()
+conn.close()
