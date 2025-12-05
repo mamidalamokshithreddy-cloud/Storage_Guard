@@ -248,9 +248,7 @@ def upsert_snapshot(db: Session, booking_id: str, publish: bool = False) -> Opti
             "is_certified": is_certified,
             "certification_types": list(set(certification_types)),
             "status": "ready_to_publish",
-            "snap_metadata": snap_metadata,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow()
+            "snap_metadata": snap_metadata
         }
         
         logger.info(f"📦 [SNAPSHOT] Payload built: sensors={len(sensors_data)}, pests={pest_count}, certs={len(certificates_list)}")
@@ -264,7 +262,7 @@ def upsert_snapshot(db: Session, booking_id: str, publish: bool = False) -> Opti
             for key, value in snapshot_payload.items():
                 if key != 'booking_id' and hasattr(existing, key):
                     setattr(existing, key, value)
-            existing.updated_at = datetime.utcnow()
+            # updated_at will be set automatically by database onupdate trigger
             existing.last_synced_at = datetime.utcnow()
             db.commit()
             logger.info(f"[SNAPSHOT] Snapshot UPDATED for booking: {booking_id}")

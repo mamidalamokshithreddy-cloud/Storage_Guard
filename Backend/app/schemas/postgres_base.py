@@ -1174,8 +1174,8 @@ class StorageLocation(Base):
     phone = Column(String(32))
     hours = Column(String(100))
     facilities = Column(JSON, default=list)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=func.now())
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     vendor = relationship("Vendor")
     __table_args__ = (Index("ix_storage_locations_lat_lon", "lat", "lon"),)
@@ -1194,8 +1194,8 @@ class StorageRFQ(Base):
     origin_lat = Column(Float, nullable=False)
     origin_lon = Column(Float, nullable=False)
     status = Column(String(24), default="OPEN")
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=func.now())
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     bids = relationship("StorageBid", back_populates="rfq", cascade="all, delete-orphan", passive_deletes=True)
     inspection = relationship("CropInspection", back_populates="rfq", uselist=False)
@@ -1211,7 +1211,7 @@ class StorageBid(Base):
     price_text = Column(String(64), nullable=False)
     eta_hours = Column(Integer, nullable=False)
     notes = Column(Text)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     rfq = relationship("StorageRFQ", back_populates="bids")
     location = relationship("StorageLocation")
@@ -1230,8 +1230,8 @@ class StorageJob(Base):
     vendor_id = Column(PGUUID(as_uuid=True), ForeignKey("vendors.id", ondelete="SET NULL"))
     status = Column(String(32), default="SCHEDULED", nullable=False)
     dsr_number = Column(String(64))
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=func.now())
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     rfq = relationship("StorageRFQ")
     location = relationship("StorageLocation")
@@ -1252,7 +1252,7 @@ class StorageProof(Base):
     lat = Column(Float)
     lon = Column(Float)
     notes = Column(Text)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     job = relationship("StorageJob", back_populates="proofs")
 
@@ -1286,7 +1286,7 @@ class CropInspection(Base):
     visual_defects = Column(Text, nullable=True)  # NEW: Visual defect summary
     rfq_id = Column(PGUUID(as_uuid=True), ForeignKey("storage_rfq.id", ondelete="SET NULL"))
     rfq = relationship("StorageRFQ", back_populates="inspection", uselist=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
 
 # =========================================================
@@ -1345,7 +1345,7 @@ class StorageBooking(Base):
     sold_at = Column(DateTime(timezone=True))
     
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     # Relationships
     farmer = relationship("User", foreign_keys=[farmer_id])
@@ -1395,8 +1395,8 @@ class TransportBooking(Base):
     current_lon = Column(Float)
     last_location_update = Column(DateTime(timezone=True))
     
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=func.now())
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     # Relationships
     farmer = relationship("User", foreign_keys=[farmer_id])
@@ -1443,8 +1443,8 @@ class ScheduledInspection(Base):
     inspection_result_id = Column(PGUUID(as_uuid=True), ForeignKey("crop_inspections.id", ondelete="SET NULL"))
     
     # Timestamps
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=func.now())
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     confirmed_at = Column(DateTime(timezone=True))
     
     # Relationships
@@ -1493,8 +1493,8 @@ class BookingPayment(Base):
     refund_reason = Column(Text)
     notes = Column(Text)
     
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=func.now())
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     # Relationships
     booking = relationship("StorageBooking", back_populates="payments")
@@ -1522,7 +1522,7 @@ class QualityTest(Base):
     threshold_max = Column(Float)
     test_date = Column(DateTime(timezone=True), default=datetime.utcnow)
     notes = Column(Text)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     job = relationship("StorageJob")
     vendor = relationship("Vendor")
@@ -1539,7 +1539,7 @@ class IoTSensor(Base):
     last_reading = Column(DateTime(timezone=True))
     battery_level = Column(Float)  # percentage
     installation_date = Column(DateTime(timezone=True), default=datetime.utcnow)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     location = relationship("StorageLocation")
     readings = relationship("SensorReading", back_populates="sensor", cascade="all, delete-orphan")
@@ -1555,7 +1555,7 @@ class SensorReading(Base):
     reading_time = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     alert_triggered = Column(Boolean, default=False)
     alert_reason = Column(String(120))
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     sensor = relationship("IoTSensor", back_populates="readings")
 
@@ -1575,7 +1575,7 @@ class PestDetection(Base):
     action_taken = Column(Text)
     detected_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     resolved_at = Column(DateTime(timezone=True))
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     location = relationship("StorageLocation")
     job = relationship("StorageJob")
@@ -1597,7 +1597,7 @@ class QualityAlert(Base):
     triggered_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     acknowledged_at = Column(DateTime(timezone=True))
     resolved_at = Column(DateTime(timezone=True))
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     job = relationship("StorageJob")
     sensor = relationship("IoTSensor")
@@ -1617,7 +1617,7 @@ class ComplianceCertificate(Base):
     document_url = Column(Text)
     score = Column(Integer)  # compliance score 0-100
     audit_notes = Column(Text)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     vendor = relationship("Vendor")
 
@@ -1634,7 +1634,7 @@ class QualityMetric(Base):
     benchmark_value = Column(Float)
     performance_rating = Column(String(16))  # excellent, good, fair, poor
     measurement_date = Column(DateTime(timezone=True), default=datetime.utcnow)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     location = relationship("StorageLocation") 
     job = relationship("StorageJob")
@@ -1658,7 +1658,7 @@ class TransportVehicle(Base):
     driver_name = Column(String(120))
     driver_phone = Column(String(20))
     fuel_efficiency = Column(Float)  # km per liter
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     vendor = relationship("Vendor")
     transport_routes = relationship("TransportRoute", back_populates="vehicle")
@@ -1684,7 +1684,7 @@ class TransportRoute(Base):
     end_time = Column(DateTime(timezone=True))
     fuel_consumed = Column(Float)
     notes = Column(Text)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     job = relationship("StorageJob")
     vehicle = relationship("TransportVehicle", back_populates="transport_routes")
@@ -1728,7 +1728,7 @@ class LogisticsProvider(Base):
     service_types = Column(JSON, default=list)  # ['Cold Transport', 'Last Mile Delivery']
     coverage_areas = Column(JSON, default=list)  # areas they serve
     verification_status = Column(String(24), default="pending")  # pending, approved, rejected
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     vehicles = relationship("TransportVehicle", foreign_keys="TransportVehicle.vendor_id", 
                            primaryjoin="LogisticsProvider.id == foreign(TransportVehicle.vendor_id)")
@@ -1748,7 +1748,7 @@ class DeliveryTracking(Base):
     notes = Column(Text)
     quality_maintained = Column(Boolean, default=True)
     temperature_log = Column(JSON)  # temperature readings during transport
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     job = relationship("StorageJob")
     route = relationship("TransportRoute")
@@ -1837,8 +1837,8 @@ class StorageCertificate(Base):
     buyer_verified_date = Column(DateTime(timezone=True))
     
     # Timestamps
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=func.now())
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     # Relationships
     booking = relationship("StorageBooking", foreign_keys=[booking_id])
@@ -1913,7 +1913,7 @@ class MarketInventorySnapshot(Base):
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     
     # Indexes for common queries
     __table_args__ = (
@@ -1941,5 +1941,4 @@ def create_tables():
     except Exception as e:
         print(f"Error creating database tables: {e}")
         raise
-
 

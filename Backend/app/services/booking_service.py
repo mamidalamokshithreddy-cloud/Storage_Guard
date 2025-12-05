@@ -249,28 +249,28 @@ def create_storage_booking(
         print(f"   → Transport Required: {transport_required}")
     
     # Populate grade from AI inspection if not provided
-    grade_value = booking_data.grade if hasattr(booking_data, 'grade') else None
+    grade_value = booking_data.grade
+    ai_inspection_id = booking_data.ai_inspection_id
+    
     try:
-        if not grade_value:
-            insp = None
-            if getattr(booking_data, 'ai_inspection_id', None):
-                insp = db.query(models.CropInspection).filter(
-                    models.CropInspection.id == booking_data.ai_inspection_id
-                ).first()
-            else:
-                # Try to find most recent inspection for this farmer and crop/location
-                insp = db.query(models.CropInspection).filter(
-                    models.CropInspection.farmer_id == farmer_id,
-                ).order_by(models.CropInspection.created_at.desc()).first()
-
+        if not grade_value and ai_inspection_id:
+            # Use provided inspection ID
+            insp = db.query(models.CropInspection).filter(
+                models.CropInspection.id == ai_inspection_id
+            ).first()
             if insp:
-                # CropInspection stores grade in `grade` or `overall_quality`
-                grade_value = getattr(insp, 'grade', None) or getattr(insp, 'overall_quality', None)
-                # If we found an inspection and ai_inspection_id was not provided, attach it
-                if not getattr(booking_data, 'ai_inspection_id', None):
-                    booking_data.ai_inspection_id = insp.id
+                grade_value = insp.grade or insp.overall_quality or "ungraded"
+        elif not grade_value:
+            # Try to find most recent inspection for this farmer
+            insp = db.query(models.CropInspection).filter(
+                models.CropInspection.farmer_id == farmer_id,
+            ).order_by(models.CropInspection.created_at.desc()).first()
+            if insp:
+                grade_value = insp.grade or insp.overall_quality or "ungraded"
+                ai_inspection_id = insp.id
     except Exception as e:
-        print(f"Warning: could not populate grade from inspection: {e}")
+        logger.warning(f"Could not populate grade from inspection: {e}")
+        grade_value = "ungraded"
 
     # Create booking
     try:
@@ -278,10 +278,10 @@ def create_storage_booking(
             farmer_id=farmer_id,
             location_id=booking_data.location_id,
             vendor_id=location.vendor_id,
-            ai_inspection_id=booking_data.ai_inspection_id,
+            ai_inspection_id=ai_inspection_id,
             crop_type=booking_data.crop_type,
             quantity_kg=booking_data.quantity_kg,
-            grade=grade_value,
+            grade=grade_value or "ungraded",
             duration_days=booking_data.duration_days,
             start_date=booking_data.start_date,
             end_date=end_date,

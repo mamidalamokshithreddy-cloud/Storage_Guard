@@ -500,9 +500,11 @@ def auto_update_sensors_before_inventory(location_id: UUID, crop_type: str, db: 
 
                         for b in bookings:
                             try:
-                                market_sync.upsert_snapshot(sess, str(b.id), publish=True)
+                                # Update snapshot with latest sensor data, but don't republish
+                                # Let the 1-hour scheduler handle publishing
+                                market_sync.upsert_snapshot(sess, str(b.id), publish=False)
                             except Exception as e:
-                                logger.warning(f"Failed to upsert/publish snapshot for booking {b.id}: {e}")
+                                logger.warning(f"Failed to upsert snapshot for booking {b.id}: {e}")
                     finally:
                         sess.close()
                 except Exception as e:

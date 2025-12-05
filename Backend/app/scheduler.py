@@ -203,8 +203,8 @@ def init_market_scheduler():
         # Check if APScheduler is installed
         import apscheduler
         market_scheduler.start(
-            sync_interval_seconds=300,      # Publish every 5 minutes
-            reconcile_interval_minutes=30   # Reconcile every 30 minutes
+            sync_interval_seconds=3600,     # Publish every 1 hour
+            reconcile_interval_minutes=60   # Reconcile every 1 hour
         )
         return True
     except ImportError:

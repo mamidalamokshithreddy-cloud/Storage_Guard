@@ -44,16 +44,15 @@ async def lifespan(app: FastAPI):
         # Don't fail startup completely, but log the error
     
     # Initialize Market Connect Snapshot Scheduler
-    # TEMPORARILY DISABLED FOR TESTING
-    logger.info("⏸️ Market Snapshot Scheduler DISABLED for manual testing")
-    # try:
-    #     from app.scheduler import init_market_scheduler
-    #     if init_market_scheduler():
-    #         logger.info("✅ Market Snapshot Scheduler initialized successfully")
-    #     else:
-    #         logger.warning("⚠️ Market Snapshot Scheduler initialization skipped (APScheduler not installed)")
-    # except Exception as e:
-    #     logger.error(f"❌ Failed to initialize Market Snapshot Scheduler: {e}")
+    # ✅ ENABLED - Updates every 1 hour
+    try:
+        from app.scheduler import init_market_scheduler
+        if init_market_scheduler():
+            logger.info("✅ Market Snapshot Scheduler initialized successfully (1-hour interval)")
+        else:
+            logger.warning("⚠️ Market Snapshot Scheduler initialization skipped (APScheduler not installed)")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize Market Snapshot Scheduler: {e}")
 
     # Load ML models on startup
     # try:

@@ -1650,7 +1650,7 @@ class StorageBookingOut(BaseModel):
     transport_required: bool
     transport_booking_id: Optional[UUID]
     created_at: datetime
-    updated_at: datetime
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
